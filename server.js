@@ -454,19 +454,33 @@ wss.on("connection", ws => {
       currentRoom = room;
 
       ws.send(JSON.stringify({type:"joined", seatIndex, roomId, chips: room.chips[seat]}));
-      broadcast(room, {type:"playerJoined", names: room.players.map(p=>p?p.name:null), count: room.players.filter(p=>p).length});
+      const count = room.players.filter(p=>p).length;
+      broadcast(room, {type:"playerJoined", names: room.players.map(p=>p?p.name:null), count});
 
-      if (room.players.filter(p=>p).length >= 2 && room.state==="waiting") {
+      // If game already in progress, send current state to new player
+      if (room.state === "playing" || room.state === "showdown") {
+        sendState(room);
+        return;
+      }
+
+      // If game starting countdown already running, just broadcast updated names
+      if (room.state === "starting") {
+        broadcast(room, {type:"starting", countdown:3});
+        return;
+      }
+
+      // Start countdown when 2+ players join
+      if (count >= 2 && room.state === "waiting") {
         setTimeout(() => {
-          if (room.players.filter(p=>p).length >= 2) {
+          if (room.players.filter(p=>p).length >= 2 && room.state === "waiting") {
             room.state = "starting";
             broadcast(room, {type:"starting", countdown:5});
-            let c=5;
-            const iv = setInterval(()=>{
+            let c = 5;
+            const iv = setInterval(() => {
               c--;
-              broadcast(room,{type:"countdown",c});
-              if(c<=0){clearInterval(iv);room.dealer=0;startHand(room);}
-            },1000);
+              broadcast(room, {type:"countdown", c});
+              if (c <= 0) { clearInterval(iv); room.dealer=0; startHand(room); }
+            }, 1000);
           }
         }, 2000);
       }
