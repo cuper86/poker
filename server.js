@@ -109,12 +109,13 @@ function sendState(room) {
   room.players.forEach((p, i) => {
     if (p.ws.readyState !== 1) return;
     const opp = 1 - i;
-    const commVisible = room.street===0?0 : room.street===1?3 : room.street===2?4 : 5;
+    const bothAllIn = room.chips[0] === 0 && room.chips[1] === 0;
+    const commVisible = bothAllIn ? 5 : (room.street===0?0 : room.street===1?3 : room.street===2?4 : 5);
     p.ws.send(JSON.stringify({
       type: "state",
       myIndex: i,
       myHand: room.players[i].hand,
-      oppHandHidden: room.state==="showdown" ? room.players[opp].hand : null,
+      oppHandHidden: (room.state==="showdown" || bothAllIn) ? room.players[opp].hand : null,
       community: room.community.slice(0, commVisible),
       pot: room.pot,
       chips: room.chips,
@@ -128,6 +129,10 @@ function sendState(room) {
       names: room.players.map(p => p.name)
     }));
   });
+}
+
+function bothAllIn(room) {
+  return room.chips[0] === 0 && room.chips[1] === 0;
 }
 
 function startHand(room) {
@@ -165,6 +170,9 @@ function nextStreet(room) {
   if (room.street >= 4) { doShowdown(room); return; }
   room.actionOn = 1 - room.dealer;
   sendState(room);
+  if (bothAllIn(room)) {
+    setTimeout(() => nextStreet(room), 1200);
+  }
 }
 
 function doShowdown(room) {
@@ -228,12 +236,7 @@ function handleAction(room, playerIdx, action, amount) {
     room.pot += amt;
     room.toCall = 0;
     room.acted[playerIdx] = true;
-    if (room.acted[other]) {
-      nextStreet(room);
-    } else {
-      room.actionOn = other;
-      sendState(room);
-    }
+    nextStreet(room);
     return;
   }
 
@@ -252,6 +255,9 @@ function handleAction(room, playerIdx, action, amount) {
     room.acted[other] = false;
     room.actionOn = other;
     sendState(room);
+    if (bothAllIn(room)) {
+      setTimeout(() => nextStreet(room), 1200);
+    }
     return;
   }
 }
