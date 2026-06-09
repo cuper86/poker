@@ -146,6 +146,7 @@ function startHand(room) {
   room.state = "playing";
   room.result = null;
   room.handCount++;
+  room.acted = [false, false];
 
   const dealer = room.dealer;
   const nonDealer = 1 - dealer;
@@ -167,6 +168,7 @@ function nextStreet(room) {
   room.bets = [0, 0];
   room.toCall = 0;
   room.minRaise = BB;
+  room.acted = [false, false];
   if (room.street >= 4) { doShowdown(room); return; }
   room.actionOn = 1 - room.dealer;
   sendState(room);
@@ -208,13 +210,20 @@ function foldHand(room, folderIdx) {
 
 function handleAction(room, playerIdx, action, amount) {
   if (room.actionOn !== playerIdx) return;
+  if (!room.acted) room.acted = [false, false];
+  const other = 1 - playerIdx;
+
   if (action === "fold") { foldHand(room, playerIdx); return; }
 
   if (action === "check") {
     if (room.toCall > 0) return;
-    const other = 1 - playerIdx;
-    if (room.bets[other] === room.bets[playerIdx]) { nextStreet(room); }
-    else { room.actionOn = other; sendState(room); }
+    room.acted[playerIdx] = true;
+    if (room.acted[other]) {
+      nextStreet(room);
+    } else {
+      room.actionOn = other;
+      sendState(room);
+    }
     return;
   }
 
@@ -224,6 +233,7 @@ function handleAction(room, playerIdx, action, amount) {
     room.bets[playerIdx] += amt;
     room.pot += amt;
     room.toCall = 0;
+    room.acted[playerIdx] = true;
     nextStreet(room);
     return;
   }
@@ -236,10 +246,12 @@ function handleAction(room, playerIdx, action, amount) {
     if (add <= 0) return;
     room.chips[playerIdx] -= add;
     room.pot += add;
-    room.minRaise = targetBet - room.bets[playerIdx];
+    room.minRaise = add;
     room.bets[playerIdx] = targetBet;
-    room.toCall = targetBet - room.bets[1-playerIdx];
-    room.actionOn = 1 - playerIdx;
+    room.toCall = targetBet - room.bets[other];
+    room.acted[playerIdx] = true;
+    room.acted[other] = false;
+    room.actionOn = other;
     sendState(room);
     return;
   }
@@ -302,5 +314,7 @@ wss.on("connection", ws => {
     }
   });
 });
+
+server.listen(PORT, () => console.log("Poker server en puerto " + PORT));
 
 server.listen(PORT, () => console.log("Poker server en puerto " + PORT));
