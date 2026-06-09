@@ -285,31 +285,45 @@ function doAllin(room, idx) {
 
 function advanceTurn(room) {
   clearTimer(room);
-  const active = activePlayers(room);
   const nf = nonFolded(room);
-
   if (nf.length <= 1) { endHand(room, "fold"); return; }
 
-  const allActed = active.every(i => room.bets[i] >= room.currentBet);
-  const noActive = active.length === 0;
+  // Players who can still act: not folded, not all-in, and still need to call or haven't acted
+  const active = activePlayers(room);
 
-  if (noActive || allActed) {
-    const nextIdx = active.find(i => i !== room.lastRaiser && room.bets[i] < room.currentBet);
-    if (nextIdx !== undefined) {
-      room.actionOn = nextIdx;
-      startTimer(room);
-      sendState(room);
-      return;
-    }
-    nextStreet(room);
-    return;
+  // If nobody can act (all all-in or folded), run out the board
+  if (active.length === 0) { nextStreet(room); return; }
+
+  // Find next player after current who still needs to act
+  // A player needs to act if their bet < currentBet OR they haven't acted yet this street
+  // We track this by finding the next active player in order
+  const n = room.players.length;
+  let next = -1;
+  for (let step = 1; step < n; step++) {
+    const idx = (room.actionOn + step) % n;
+    if (!room.players[idx] || room.folded[idx] || room.allin[idx]) continue;
+    // This player can act
+    next = idx;
+    break;
   }
 
-  const next = nextActive(room, room.actionOn);
+  // If we've gone all the way around to the last raiser (or no one left), end street
   if (next === -1 || next === room.lastRaiser) {
-    nextStreet(room);
+    // But first check if everyone has matched the current bet
+    const allCalled = active.every(i => room.bets[i] >= room.currentBet);
+    if (allCalled) { nextStreet(room); return; }
+    // Someone still needs to call
+    const needsCall = active.find(i => room.bets[i] < room.currentBet);
+    if (needsCall === undefined) { nextStreet(room); return; }
+    room.actionOn = needsCall;
+    startTimer(room);
+    sendState(room);
     return;
   }
+
+  // Check if next player has already matched and we've completed the round
+  if (next === room.lastRaiser) { nextStreet(room); return; }
+
   room.actionOn = next;
   startTimer(room);
   sendState(room);
@@ -328,16 +342,21 @@ function nextStreet(room) {
   const nf = nonFolded(room);
   if (nf.length <= 1) { endHand(room, "fold"); return; }
 
-  const allInOrFolded = activePlayers(room).length === 0;
-  const firstAct = nf.find(i => i > room.dealer) || nf[0];
-  room.actionOn = firstAct;
+  const active = activePlayers(room);
   room.lastRaiser = -1;
+
+  // Show the new community cards first
   sendState(room);
 
-  if (allInOrFolded) {
-    setTimeout(() => nextStreet(room), 1200);
+  if (active.length === 0) {
+    // Everyone all-in, run out remaining streets with delay
+    setTimeout(() => nextStreet(room), 1400);
   } else {
+    // First active player after dealer acts first
+    const firstAct = nf.find(i => i > room.dealer) || nf[0];
+    room.actionOn = firstAct;
     startTimer(room);
+    sendState(room);
   }
 }
 
@@ -496,4 +515,5 @@ wss.on("connection", ws => {
 });
 
 server.listen(PORT, () => console.log("Poker 6max en puerto " + PORT));
+
 
