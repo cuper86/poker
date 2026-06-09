@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Poker Online</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{background:#14532d;font-family:Georgia,serif;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:8px;overscroll-behavior:none;}
+h2{font-size:16px;font-weight:normal;color:#86efac;margin-bottom:6px;}
+
+#screen-join{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;gap:14px;width:100%;max-width:340px;}
+#screen-join h1{font-size:26px;color:#fbbf24;letter-spacing:1px;}
+#screen-join input{width:100%;padding:12px;border-radius:10px;border:1px solid #3a7a4a;background:#0f3d1f;color:#fff;font-size:15px;text-align:center;}
+#screen-join input::placeholder{color:#6b7280;}
+.btn{padding:12px 24px;border-radius:10px;border:none;font-size:15px;font-weight:700;cursor:pointer;width:100%;}
+.btn-green{background:#16a34a;color:#fff;}
+.btn-amber{background:#d97706;color:#fff;}
+.btn-red{background:#dc2626;color:#fff;}
+.btn-blue{background:#2563eb;color:#fff;}
+.btn-purple{background:#7c3aed;color:#fff;}
+.btn-gray{background:#374151;color:#fff;}
+.btn:active{opacity:.8;}
+.badge{background:rgba(0,0,0,0.45);border-radius:20px;padding:4px 12px;font-size:13px;color:#fbbf24;}
+
+#screen-game{display:none;flex-direction:column;align-items:center;width:100%;max-width:420px;gap:6px;}
+
+.player-box{background:rgba(0,0,0,0.5);border-radius:12px;padding:8px 14px;width:100%;display:flex;justify-content:space-between;align-items:center;}
+.player-box.active-turn{border:2px solid #fbbf24;}
+.player-box .pname{font-size:13px;color:#86efac;}
+.player-box .pchips{font-size:16px;color:#fbbf24;font-weight:700;}
+.player-box .pbet{font-size:12px;color:#6ee7b7;}
+.player-box .phand{font-size:12px;color:#fbbf24;font-style:italic;}
+
+.cards-row{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
+.card{width:48px;height:68px;background:#fff;border-radius:7px;border:1px solid #bbb;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:3px;font-weight:700;user-select:none;}
+.card.back{background:repeating-linear-gradient(45deg,#1e3a8a,#1e3a8a 5px,#2563eb 5px,#2563eb 10px);border:2px solid #1e1b4b;}
+.card.red{color:#dc2626;}
+.card.black{color:#111;}
+.card.hl{border:2px solid #fbbf24;transform:translateY(-4px);}
+.card-slot{width:48px;height:68px;border-radius:7px;border:2px dashed rgba(255,255,255,0.2);}
+.card-r{font-size:13px;line-height:1;align-self:flex-start;}
+.card-s{font-size:18px;line-height:1;}
+.card-rb{font-size:13px;line-height:1;align-self:flex-end;transform:rotate(180deg);}
+
+.table-area{background:#166534;border:5px solid #713f12;border-radius:20px;width:100%;padding:12px 8px;display:flex;flex-direction:column;align-items:center;gap:8px;}
+.info-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;}
+
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;width:100%;}
+.actions button{flex:1;min-width:80px;max-width:140px;padding:11px 8px;border-radius:10px;border:none;font-size:13px;font-weight:700;cursor:pointer;}
+.raise-row{display:flex;gap:8px;align-items:center;width:100%;justify-content:center;}
+.raise-row input{width:80px;padding:8px;border-radius:8px;border:1px solid #3a7a4a;background:#0f3d1f;color:#fff;font-size:14px;text-align:center;}
+
+#msg{background:rgba(0,0,0,0.6);border-radius:20px;padding:6px 16px;font-size:13px;color:#fbbf24;text-align:center;width:100%;}
+#waiting-msg{color:#86efac;font-size:14px;text-align:center;padding:8px;}
+.hand-ranks{font-size:10px;color:rgba(255,255,255,0.35);text-align:center;line-height:1.9;margin-top:4px;}
+</style>
+</head>
+<body>
+
+<div id="screen-join">
+  <h1>♠ Poker Online</h1>
+  <p style="color:#86efac;font-size:14px;text-align:center;">Texas Hold'em — 2 jugadores</p>
+  <input id="inp-name" placeholder="Tu nombre" maxlength="16"/>
+  <input id="inp-room" placeholder="Código de sala (ej: izaro123)" maxlength="20"/>
+  <button class="btn btn-green" onclick="joinGame()">Entrar a la sala</button>
+  <p style="font-size:12px;color:#6b7280;text-align:center;">Comparte el mismo código de sala con tu pareja para jugar juntos</p>
+</div>
+
+<div id="screen-game">
+  <div id="waiting-msg" style="display:none;">Esperando al otro jugador...</div>
+
+  <div class="player-box" id="box-opp">
+    <div>
+      <div class="pname" id="opp-name">Rival</div>
+      <div class="phand" id="opp-hand"></div>
+    </div>
+    <div style="text-align:right;">
+      <div class="pchips" id="opp-chips">1000</div>
+      <div class="pbet" id="opp-bet"></div>
+    </div>
+  </div>
+
+  <div class="cards-row" id="opp-cards"></div>
+
+  <div class="table-area">
+    <div class="info-row">
+      <div class="badge" id="pot-display">Bote: 0</div>
+      <div class="badge" id="street-display">Pre-flop</div>
+    </div>
+    <div class="cards-row" id="community-cards"></div>
+    <div id="msg">Conectando...</div>
+  </div>
+
+  <div class="cards-row" id="my-cards"></div>
+
+  <div class="player-box" id="box-me">
+    <div>
+      <div class="pname" id="my-name">Tú</div>
+      <div class="phand" id="my-hand"></div>
+    </div>
+    <div style="text-align:right;">
+      <div class="pchips" id="my-chips">1000</div>
+      <div class="pbet" id="my-bet"></div>
+    </div>
+  </div>
+
+  <div class="actions" id="actions"></div>
+  <div class="raise-row" id="raise-row" style="display:none;">
+    <span style="font-size:13px;color:#ccc;">Subir a:</span>
+    <input type="number" id="raise-input" min="1" value="40"/>
+    <button class="btn btn-amber" style="flex:0;width:auto;padding:8px 14px;" onclick="doRaise()">OK</button>
+  </div>
+
+  <div class="hand-ranks">Escalera real › Escalera de color › Póker › Full › Color › Escalera › Trío › Doble pareja › Pareja › Carta alta</div>
+</div>
+
+<script>
+let ws, myIdx = -1, myName = "", roomId = "";
+let lastState = null;
+let waitingNext = false;
+
+function joinGame() {
+  const name = document.getElementById("inp-name").value.trim() || "Jugador";
+  const room = document.getElementById("inp-room").value.trim() || "default";
+  myName = name; roomId = room;
+
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(proto + "://" + location.host);
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "join", name, room }));
+    document.getElementById("screen-join").style.display = "none";
+    document.getElementById("screen-game").style.display = "flex";
+  };
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    handleMsg(msg);
+  };
+
+  ws.onclose = () => setMsg("Conexión cerrada. Recarga la página.");
+  ws.onerror = () => setMsg("Error de conexión.");
+}
+
+function handleMsg(msg) {
+  if (msg.type === "error") { alert(msg.msg); location.reload(); return; }
+  if (msg.type === "joined") { myIdx = msg.index; }
+  if (msg.type === "waiting") {
+    document.getElementById("waiting-msg").style.display = "block";
+    setMsg("Esperando al otro jugador...");
+    setActions([]);
+  }
+  if (msg.type === "ready") {
+    document.getElementById("waiting-msg").style.display = "none";
+    setMsg("¡A jugar! " + msg.names.join(" vs "));
+  }
+  if (msg.type === "waitingNext") {
+    waitingNext = true;
+    setMsg(msg.waiting === myIdx ? "Esperando que el rival confirme..." : "El rival quiere otra mano...");
+  }
+  if (msg.type === "disconnected") {
+    setMsg("El rival se ha desconectado.");
+    setActions([]);
+  }
+  if (msg.type === "state") {
+    lastState = msg;
+    renderState(msg);
+  }
+}
+
+function renderState(s) {
+  const opp = 1 - myIdx;
+  document.getElementById("my-name").textContent = s.names[myIdx] || "Tú";
+  document.getElementById("opp-name").textContent = s.names[opp] || "Rival";
+  document.getElementById("my-chips").textContent = s.chips[myIdx];
+  document.getElementById("opp-chips").textContent = s.chips[opp];
+  document.getElementById("my-bet").textContent = s.bets[myIdx] > 0 ? "Apuesta: " + s.bets[myIdx] : "";
+  document.getElementById("opp-bet").textContent = s.bets[opp] > 0 ? "Apuesta: " + s.bets[opp] : "";
+  document.getElementById("pot-display").textContent = "Bote: " + s.pot;
+  const streets = ["Pre-flop","Flop","Turn","River","Showdown"];
+  document.getElementById("street-display").textContent = streets[Math.min(s.street,4)];
+
+  renderMyCards(s.myHand || [], s.state === "showdown");
+  renderOppCards(s.oppHandHidden, s.state === "showdown");
+  renderCommunity(s.community || []);
+
+  const myTurn = s.actionOn === myIdx;
+  document.getElementById("box-me").className = "player-box" + (myTurn ? " active-turn" : "");
+  document.getElementById("box-opp").className = "player-box" + (!myTurn && s.actionOn >= 0 ? " active-turn" : "");
+
+  document.getElementById("my-hand").textContent = "";
+  document.getElementById("opp-hand").textContent = "";
+
+  if (s.state === "showdown" && s.result) {
+    waitingNext = false;
+    const r = s.result;
+    if (r.reason === "fold") {
+      setMsg(r.winner === myIdx ? "¡Rival pasó! Ganas el bote." : "Pasaste. Rival gana el bote.");
+    } else if (r.winner === -1) {
+      setMsg("¡Empate! Bote dividido. " + r.hands[myIdx]);
+    } else {
+      const won = r.winner === myIdx;
+      setMsg((won ? "¡GANAS! " : "Perdiste. ") + r.hands[myIdx] + " vs " + r.hands[opp]);
+    }
+    if (r.reason !== "fold") {
+      document.getElementById("my-hand").textContent = r.hands[myIdx];
+      document.getElementById("opp-hand").textContent = r.hands[opp];
+    }
+    setActions([{ id:"newhand", label:"Nueva mano", cl:"btn-green" }]);
+    document.getElementById("raise-row").style.display = "none";
+    return;
+  }
+
+  if (s.state === "playing") {
+    if (myTurn) {
+      setMsg("Tu turno");
+      const btns = [{ id:"fold", label:"Fold", cl:"btn-red" }];
+      if (s.toCall === 0) btns.push({ id:"check", label:"Check", cl:"btn-gray" });
+      else btns.push({ id:"call", label:"Call (" + s.toCall + ")", cl:"btn-blue" });
+      btns.push({ id:"raise", label:"Raise", cl:"btn-amber" });
+      btns.push({ id:"allin", label:"All-in", cl:"btn-purple" });
+      setActions(btns);
+      const ri = document.getElementById("raise-input");
+      ri.min = s.bets[myIdx] + s.minRaise;
+      ri.value = Math.max(s.bets[myIdx] + s.minRaise, (s.bets[opp] * 2) || 40);
+    } else {
+      setMsg("Turno del rival...");
+      setActions([]);
+      document.getElementById("raise-row").style.display = "none";
+    }
+  }
+}
+
+function renderMyCards(hand, showHL) {
+  const el = document.getElementById("my-cards");
+  el.innerHTML = (hand || []).map(c => cardHTML(c, false)).join("");
+}
+
+function renderOppCards(hand, revealed) {
+  const el = document.getElementById("opp-cards");
+  if (revealed && hand) {
+    el.innerHTML = hand.map(c => cardHTML(c, false)).join("");
+  } else {
+    el.innerHTML = '<div class="card back"></div><div class="card back"></div>';
+  }
+}
+
+function renderCommunity(cards) {
+  const el = document.getElementById("community-cards");
+  let html = "";
+  for (let i = 0; i < 5; i++) {
+    if (i < cards.length) html += cardHTML(cards[i], false);
+    else html += '<div class="card-slot"></div>';
+  }
+  el.innerHTML = html;
+}
+
+function cardHTML(c, hidden) {
+  if (hidden) return '<div class="card back"></div>';
+  const red = c.s === "♥" || c.s === "♦";
+  return `<div class="card ${red?"red":"black"}"><span class="card-r">${c.r}</span><span class="card-s">${c.s}</span><span class="card-rb">${c.r}</span></div>`;
+}
+
+function setMsg(t) { document.getElementById("msg").textContent = t; }
+
+function setActions(btns) {
+  const el = document.getElementById("actions");
+  const rr = document.getElementById("raise-row");
+  el.innerHTML = "";
+  rr.style.display = "none";
+  btns.forEach(b => {
+    if (b.id === "raise") { rr.style.display = "flex"; return; }
+    const btn = document.createElement("button");
+    btn.className = "btn " + b.cl;
+    btn.textContent = b.label;
+    btn.onclick = () => playerAction(b.id);
+    el.appendChild(btn);
+  });
+}
+
+function playerAction(action) {
+  if (!ws || ws.readyState !== 1) return;
+  if (action === "newhand") {
+    ws.send(JSON.stringify({ type: "newhand" }));
+    setMsg("Esperando al rival...");
+    setActions([]);
+    return;
+  }
+  ws.send(JSON.stringify({ type: "action", action }));
+}
+
+function doRaise() {
+  const amt = parseInt(document.getElementById("raise-input").value) || 0;
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: "action", action: "raise", amount: amt }));
+}
+</script>
+</body>
+</html>
