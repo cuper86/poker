@@ -348,22 +348,22 @@ function advanceTurn(room) {
   const nf = nonFolded(room);
   if (nf.length <= 1) { endHand(room, "fold"); return; }
 
-  // Mark current player as having acted (only if not all-in)
+  // Marcar jugador actual como actuado
   if (!room.acted) room.acted = new Array(room.players.length).fill(false);
   if (room.actionOn >= 0) room.acted[room.actionOn] = true;
 
-  // Active = not folded, not all-in
+  // Jugadores activos = no foldeados, no all-in
   const active = activePlayers(room);
 
-  // If nobody can act, end the street
+  // Si nadie puede actuar, pasar de calle
   if (active.length === 0) { nextStreet(room); return; }
 
-  // Check if all active players have acted AND matched the current bet
+  // Si todos han actuado e igualado, pasar de calle
   const allActed = active.every(i => room.acted[i]);
   const allCalled = active.every(i => room.bets[i] >= room.currentBet);
   if (allActed && allCalled) { nextStreet(room); return; }
 
-  // Find next active player after current actionOn
+  // Buscar siguiente jugador activo (no foldeado, no all-in)
   const n = room.players.length;
   let next = -1;
   for (let step = 1; step < n; step++) {
@@ -373,10 +373,9 @@ function advanceTurn(room) {
     break;
   }
 
-  // No active player found
   if (next === -1) { nextStreet(room); return; }
 
-  // If next player has already acted and matched — end street
+  // Si el siguiente ya actuó e igualó, fin de calle
   if (room.acted[next] && room.bets[next] >= room.currentBet) {
     nextStreet(room); return;
   }
@@ -402,19 +401,26 @@ function nextStreet(room) {
   const active = activePlayers(room);
   room.lastRaiser = -1;
   room.acted = new Array(room.players.length).fill(false);
+  room.actionOn = -1; // nadie tiene turno por defecto
 
-  // Show the new community cards first
+  // Mostrar cartas nuevas
   sendState(room);
 
   if (active.length === 0) {
-    // Everyone all-in, run out remaining streets with delay
+    // Todos all-in — pasar calles automáticamente
     setTimeout(() => nextStreet(room), 1400);
   } else {
-    // First active player after dealer acts first
-    const firstAct = nf.find(i => i > room.dealer) || nf[0];
-    room.actionOn = firstAct;
-    startTimer(room);
-    sendState(room);
+    // Hay jugadores activos — asignar turno al primero después del dealer
+    const firstAct = nf.find(i => !room.allin[i] && i > room.dealer) 
+                  || nf.find(i => !room.allin[i]) 
+                  || -1;
+    if (firstAct === -1) {
+      setTimeout(() => nextStreet(room), 1400);
+    } else {
+      room.actionOn = firstAct;
+      startTimer(room);
+      sendState(room);
+    }
   }
 }
 
