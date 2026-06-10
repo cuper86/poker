@@ -320,20 +320,22 @@ function advanceTurn(room) {
   const nf = nonFolded(room);
   if (nf.length <= 1) { endHand(room, "fold"); return; }
 
+  // Mark current player as having acted (only if not all-in)
+  if (!room.acted) room.acted = new Array(room.players.length).fill(false);
+  if (room.actionOn >= 0) room.acted[room.actionOn] = true;
+
+  // Active = not folded, not all-in
   const active = activePlayers(room);
+
+  // If nobody can act, end the street
   if (active.length === 0) { nextStreet(room); return; }
 
-  // Mark current player as having acted
-  if (!room.acted) room.acted = new Array(room.players.length).fill(false);
-  room.acted[room.actionOn] = true;
-
-  // Check if all active players have acted AND all bets are equal
+  // Check if all active players have acted AND matched the current bet
   const allActed = active.every(i => room.acted[i]);
   const allCalled = active.every(i => room.bets[i] >= room.currentBet);
-
   if (allActed && allCalled) { nextStreet(room); return; }
 
-  // Find next active player who hasn't acted or still needs to call
+  // Find next active player after current actionOn
   const n = room.players.length;
   let next = -1;
   for (let step = 1; step < n; step++) {
@@ -343,7 +345,13 @@ function advanceTurn(room) {
     break;
   }
 
+  // No active player found
   if (next === -1) { nextStreet(room); return; }
+
+  // If next player has already acted and matched — end street
+  if (room.acted[next] && room.bets[next] >= room.currentBet) {
+    nextStreet(room); return;
+  }
 
   room.actionOn = next;
   startTimer(room);
