@@ -8,11 +8,37 @@ const TURN_TIMEOUT = 30;
 const SB = 10, BB = 20;
 const MAX_PLAYERS = 6;
 
+const MIME = {
+  ".html": "text/html",
+  ".json": "application/json",
+  ".js":   "application/javascript",
+  ".png":  "image/png",
+  ".svg":  "image/svg+xml",
+  ".ico":  "image/x-icon"
+};
+
 const server = http.createServer((req, res) => {
-  const file = path.join(__dirname, "public", "index.html");
-  fs.readFile(file, (err, data) => {
+  const url = req.url.split("?")[0];
+  let filePath;
+
+  if (url === "/" || url === "/index.html") {
+    filePath = path.join(__dirname, "public", "index.html");
+  } else if (url === "/manifest.json") {
+    filePath = path.join(__dirname, "public", "manifest.json");
+  } else if (url === "/sw.js") {
+    filePath = path.join(__dirname, "public", "sw.js");
+  } else if (url === "/icon-192.png") {
+    filePath = path.join(__dirname, "public", "icon-192.png");
+  } else if (url === "/icon-512.png") {
+    filePath = path.join(__dirname, "public", "icon-512.png");
+  } else {
+    res.writeHead(404); res.end("Not found"); return;
+  }
+
+  const ext = path.extname(filePath);
+  fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); res.end("Not found"); return; }
-    res.writeHead(200, { "Content-Type": "text/html" });
+    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
     res.end(data);
   });
 });
