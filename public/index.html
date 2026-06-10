@@ -56,6 +56,22 @@ input::placeholder{color:#6b7280;}
 .hand-ranks{font-size:10px;color:rgba(255,255,255,0.3);text-align:center;line-height:1.9;margin-top:2px;}
 .lobby-info{font-size:13px;color:#86efac;text-align:center;}
 .countdown{font-size:32px;color:#fbbf24;font-weight:700;text-align:center;padding:10px;}
+.chat-wrap{width:100%;max-width:480px;background:rgba(0,0,0,0.45);border-radius:12px;border:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;overflow:hidden;margin-top:4px;}
+.chat-header{padding:6px 12px;font-size:12px;color:#86efac;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;}
+.chat-header span{color:#fbbf24;font-size:11px;}
+.chat-msgs{height:120px;overflow-y:auto;padding:6px 10px;display:flex;flex-direction:column;gap:4px;}
+.chat-msgs::-webkit-scrollbar{width:4px;}
+.chat-msgs::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:2px;}
+.chat-msg{font-size:12px;line-height:1.4;word-break:break-word;}
+.chat-msg .cn{font-weight:700;margin-right:4px;}
+.chat-msg.me .cn{color:#22c55e;}
+.chat-msg.other .cn{color:#60a5fa;}
+.chat-msg.system{color:rgba(255,255,255,0.4);font-style:italic;font-size:11px;}
+.chat-input-row{display:flex;gap:6px;padding:6px 8px;border-top:1px solid rgba(255,255,255,0.08);}
+.chat-input-row input{flex:1;padding:7px 10px;border-radius:8px;font-size:13px;width:auto;}
+.chat-input-row button{flex:0;padding:7px 12px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.chat-input-row button:active{opacity:.8;}
+.chat-unread{background:#ef4444;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;}
 </style>
 </head>
 <body>
@@ -100,6 +116,18 @@ input::placeholder{color:#6b7280;}
   <div class="hand-ranks">Escalera real › Escalera de color › Poker › Full › Color › Escalera › Trio › Doble pareja › Pareja › Carta alta</div>
 </div>
 
+<div class="chat-wrap" id="chat-wrap" style="display:none;">
+  <div class="chat-header" onclick="toggleChat()">
+    💬 Chat de sala
+    <span id="chat-unread-badge" style="display:none;" class="chat-unread">0</span>
+  </div>
+  <div class="chat-msgs" id="chat-msgs"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Escribe un mensaje..." maxlength="120" onkeydown="if(event.key==='Enter')sendChat()"/>
+    <button onclick="sendChat()">Enviar</button>
+  </div>
+</div>
+
 <script>
 let ws, mySeat=-1, myName="", lastState=null;
 
@@ -113,6 +141,7 @@ function joinGame(){
     ws.send(JSON.stringify({type:"join",name,room}));
     document.getElementById("screen-join").style.display="none";
     document.getElementById("screen-game").style.display="flex";
+    document.getElementById("chat-wrap").style.display="flex";
   };
   ws.onmessage=e=>handleMsg(JSON.parse(e.data));
   ws.onclose=()=>setMsg("Conexión cerrada. Recarga la página.");
@@ -126,10 +155,12 @@ function handleMsg(msg){
     document.getElementById("lobby-info").textContent=
       "Sala: "+msg.count+" jugador"+(msg.count!==1?"es":"")+" conectado"+(msg.count!==1?"s":"");
     setMsg(msg.count>=2?"Iniciando pronto...":"Esperando más jugadores...");
+    if(msg.newName) addChatMsg("",msg.newName+" se ha unido a la sala",false,true);
   }
   if(msg.type==="playerLeft"){
     document.getElementById("lobby-info").textContent=
       msg.names.filter(n=>n).length+" jugadores";
+    if(msg.leftName) addChatMsg("",msg.leftName+" ha abandonado la sala",false,true);
   }
   if(msg.type==="starting"){setMsg("Empieza en 5...");}
   if(msg.type==="countdown"){
@@ -146,6 +177,13 @@ function handleMsg(msg){
   if(msg.type==="state"){
     lastState=msg;
     renderState(msg);
+  }
+  if(msg.type==="chat"){
+    const isMe=msg.seat===mySeat;
+    addChatMsg(msg.name,msg.text,isMe);
+  }
+  if(msg.type==="chatSystem"){
+    addChatMsg("",msg.text,false,true);
   }
 }
 
@@ -328,6 +366,47 @@ function doRaise(){
 }
 
 const BB=20;
+
+// --- CHAT ---
+let chatOpen=true, unreadCount=0;
+
+function toggleChat(){
+  const msgs=document.getElementById("chat-msgs");
+  const inputRow=document.querySelector(".chat-input-row");
+  chatOpen=!chatOpen;
+  msgs.style.display=chatOpen?"flex":"none";
+  inputRow.style.display=chatOpen?"flex":"none";
+  if(chatOpen){unreadCount=0;updateUnread();}
+}
+
+function updateUnread(){
+  const badge=document.getElementById("chat-unread-badge");
+  if(unreadCount>0&&!chatOpen){badge.style.display="inline";badge.textContent=unreadCount;}
+  else badge.style.display="none";
+}
+
+function sendChat(){
+  const inp=document.getElementById("chat-input");
+  const text=inp.value.trim();
+  if(!text||!ws||ws.readyState!==1)return;
+  ws.send(JSON.stringify({type:"chat",text}));
+  inp.value="";
+}
+
+function addChatMsg(name,text,isMe,isSystem=false){
+  const el=document.getElementById("chat-msgs");
+  const div=document.createElement("div");
+  div.className="chat-msg "+(isSystem?"system":isMe?"me":"other");
+  if(isSystem){div.textContent=text;}
+  else{div.innerHTML=`<span class="cn">${escapeHtml(name)}:</span>${escapeHtml(text)}`;}
+  el.appendChild(div);
+  el.scrollTop=el.scrollHeight;
+  if(!chatOpen&&!isSystem){unreadCount++;updateUnread();}
+}
+
+function escapeHtml(t){
+  return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
 </script>
 </body>
 </html>
