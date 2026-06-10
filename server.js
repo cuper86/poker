@@ -455,7 +455,7 @@ wss.on("connection", ws => {
 
       ws.send(JSON.stringify({type:"joined", seatIndex, roomId, chips: room.chips[seat]}));
       const count = room.players.filter(p=>p).length;
-      broadcast(room, {type:"playerJoined", names: room.players.map(p=>p?p.name:null), count});
+      broadcast(room, {type:"playerJoined", names: room.players.map(p=>p?p.name:null), count, newName: room.players[seat].name});
 
       // If game already in progress, send current state to new player
       if (room.state === "playing" || room.state === "showdown") {
@@ -510,17 +510,28 @@ wss.on("connection", ws => {
       return;
     }
 
+    if (msg.type==="chat" && currentRoom) {
+      const sender = currentRoom.players[seatIndex];
+      if (!sender) return;
+      const text = (msg.text||"").slice(0,120).trim();
+      if (!text) return;
+      broadcast(currentRoom, {type:"chat", seat:seatIndex, name:sender.name, text});
+      return;
+    }
+
     if (msg.type==="sitout" && currentRoom) {
+      const leavingName = currentRoom.players[seatIndex] ? currentRoom.players[seatIndex].name : null;
       currentRoom.players[seatIndex] = null;
-      broadcast(currentRoom, {type:"playerLeft", seatIndex, names: currentRoom.players.map(p=>p?p.name:null)});
+      broadcast(currentRoom, {type:"playerLeft", seatIndex, names: currentRoom.players.map(p=>p?p.name:null), leftName: leavingName});
       return;
     }
   });
 
   ws.on("close", () => {
     if (currentRoom && seatIndex>=0) {
+      const leavingName = currentRoom.players[seatIndex] ? currentRoom.players[seatIndex].name : null;
       currentRoom.players[seatIndex] = null;
-      broadcast(currentRoom, {type:"playerLeft", seatIndex, names: currentRoom.players.map(p=>p?p.name:null)});
+      broadcast(currentRoom, {type:"playerLeft", seatIndex, names: currentRoom.players.map(p=>p?p.name:null), leftName: leavingName});
       if (currentRoom.state==="playing" && currentRoom.actionOn===seatIndex) {
         doFold(currentRoom, seatIndex);
       }
@@ -529,5 +540,3 @@ wss.on("connection", ws => {
 });
 
 server.listen(PORT, () => console.log("Poker 6max en puerto " + PORT));
-
-
