@@ -118,6 +118,7 @@ function createRoom(id) {
     actionOn: -1, currentBet: 0, minRaise: BB,
     chips: [], bets: [], folded: [], allin: [],
     totalContribs: [],
+    host: 0,
     handCount: 0, timer: null, timerLeft: TURN_TIMEOUT,
     readyVotes: new Set()
   };
@@ -519,7 +520,11 @@ wss.on("connection", ws => {
 
       ws.send(JSON.stringify({type:"joined", seatIndex, roomId, chips: room.chips[seat]}));
       const count = room.players.filter(p=>p).length;
-      broadcast(room, {type:"playerJoined", names: room.players.map(p=>p?p.name:null), count, newName: room.players[seat].name});
+      const isHost = seatIndex === room.host;
+      broadcast(room, {type:"playerJoined", names: room.players.map(p=>p?p.name:null), count, newName: room.players[seat].name, chips: room.chips});
+
+      // First player becomes host
+      if (count === 1) room.host = seat;
 
       // If game already in progress, send current state to new player
       if (room.state === "playing" || room.state === "showdown") {
@@ -527,27 +532,35 @@ wss.on("connection", ws => {
         return;
       }
 
-      // If game starting countdown already running, just broadcast updated names
+      // If countdown already running, just broadcast updated names
       if (room.state === "starting") {
         broadcast(room, {type:"starting", countdown:3});
         return;
       }
 
-      // Start countdown when 2+ players join
-      if (count >= 2 && room.state === "waiting") {
-        setTimeout(() => {
-          if (room.players.filter(p=>p).length >= 2 && room.state === "waiting") {
-            room.state = "starting";
-            broadcast(room, {type:"starting", countdown:5});
-            let c = 5;
-            const iv = setInterval(() => {
-              c--;
-              broadcast(room, {type:"countdown", c});
-              if (c <= 0) { clearInterval(iv); room.dealer=0; startHand(room); }
-            }, 1000);
-          }
-        }, 2000);
+      // In waiting state, tell host they can start
+      if (room.state === "waiting") {
+        broadcast(room, {type:"lobby", names: room.players.map(p=>p?p.name:null), count, chips: room.chips, host: room.host});
       }
+      return;
+    }
+
+    if (msg.type === "startgame" && currentRoom) {
+      if (seatIndex !== currentRoom.host) return;
+      if (currentRoom.state !== "waiting") return;
+      const count = currentRoom.players.filter(p=>p).length;
+      if (count < 2) {
+        currentRoom.players[seatIndex].ws.send(JSON.stringify({type:"error",msg:"Se necesitan al menos 2 jugadores"}));
+        return;
+      }
+      currentRoom.state = "starting";
+      broadcast(currentRoom, {type:"starting", countdown:5});
+      let c = 5;
+      const iv = setInterval(() => {
+        c--;
+        broadcast(currentRoom, {type:"countdown", c});
+        if (c <= 0) { clearInterval(iv); currentRoom.dealer=0; startHand(currentRoom); }
+      }, 1000);
       return;
     }
 
