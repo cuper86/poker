@@ -243,6 +243,9 @@ function startHand(room) {
   const utg = active[(active.indexOf(room.dealer)+3)%active.length];
   room.actionOn = utg;
   room.lastRaiser = bbIdx;
+  room.acted = new Array(room.players.length).fill(false);
+  // BB and SB have "acted" by posting blinds, but UTG and beyond haven't
+  // Mark SB and BB as not acted so they can re-act if raised
   startTimer(room);
   sendState(room);
 }
@@ -302,6 +305,9 @@ function doRaise(room, idx, total) {
   room.currentBet = totalBet;
   room.lastRaiser = idx;
   if (room.chips[idx]===0) room.allin[idx]=true;
+  // Reset acted for everyone else so they must respond to the raise
+  if (!room.acted) room.acted = new Array(room.players.length).fill(false);
+  room.acted = room.acted.map((a, i) => i === idx ? true : false);
   advanceTurn(room);
 }
 
@@ -314,41 +320,30 @@ function advanceTurn(room) {
   const nf = nonFolded(room);
   if (nf.length <= 1) { endHand(room, "fold"); return; }
 
-  // Players who can still act: not folded, not all-in, and still need to call or haven't acted
   const active = activePlayers(room);
-
-  // If nobody can act (all all-in or folded), run out the board
   if (active.length === 0) { nextStreet(room); return; }
 
-  // Find next player after current who still needs to act
-  // A player needs to act if their bet < currentBet OR they haven't acted yet this street
-  // We track this by finding the next active player in order
+  // Mark current player as having acted
+  if (!room.acted) room.acted = new Array(room.players.length).fill(false);
+  room.acted[room.actionOn] = true;
+
+  // Check if all active players have acted AND all bets are equal
+  const allActed = active.every(i => room.acted[i]);
+  const allCalled = active.every(i => room.bets[i] >= room.currentBet);
+
+  if (allActed && allCalled) { nextStreet(room); return; }
+
+  // Find next active player who hasn't acted or still needs to call
   const n = room.players.length;
   let next = -1;
   for (let step = 1; step < n; step++) {
     const idx = (room.actionOn + step) % n;
     if (!room.players[idx] || room.folded[idx] || room.allin[idx]) continue;
-    // This player can act
     next = idx;
     break;
   }
 
-  // If we've gone all the way around to the last raiser (or no one left), end street
-  if (next === -1 || next === room.lastRaiser) {
-    // But first check if everyone has matched the current bet
-    const allCalled = active.every(i => room.bets[i] >= room.currentBet);
-    if (allCalled) { nextStreet(room); return; }
-    // Someone still needs to call
-    const needsCall = active.find(i => room.bets[i] < room.currentBet);
-    if (needsCall === undefined) { nextStreet(room); return; }
-    room.actionOn = needsCall;
-    startTimer(room);
-    sendState(room);
-    return;
-  }
-
-  // Check if next player has already matched and we've completed the round
-  if (next === room.lastRaiser) { nextStreet(room); return; }
+  if (next === -1) { nextStreet(room); return; }
 
   room.actionOn = next;
   startTimer(room);
@@ -370,6 +365,7 @@ function nextStreet(room) {
 
   const active = activePlayers(room);
   room.lastRaiser = -1;
+  room.acted = new Array(room.players.length).fill(false);
 
   // Show the new community cards first
   sendState(room);
