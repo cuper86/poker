@@ -117,6 +117,7 @@ function createRoom(id) {
     sidePots: [], street: 0, dealer: 0,
     actionOn: -1, currentBet: 0, minRaise: BB,
     chips: [], bets: [], folded: [], allin: [],
+    totalContribs: [],
     handCount: 0, timer: null, timerLeft: TURN_TIMEOUT,
     readyVotes: new Set()
   };
@@ -220,6 +221,7 @@ function startHand(room) {
   room.bets = new Array(seats).fill(0);
   room.folded = room.players.map(p => !p);
   room.allin = new Array(seats).fill(false);
+  room.totalContribs = new Array(seats).fill(0);
   room.sidePots = [];
   room.pot = 0;
   room.street = 0;
@@ -255,22 +257,39 @@ function postBlind(room, idx, amount) {
   room.chips[idx] -= actual;
   room.bets[idx] += actual;
   room.pot += actual;
+  room.totalContribs[idx] = (room.totalContribs[idx]||0) + actual;
   if (room.chips[idx]===0) room.allin[idx]=true;
 }
 
 function computeSidePots(room) {
-  const involved = room.players.map((_,i)=>i).filter(i => room.players[i] && !room.folded[i]);
-  const contribs = involved.map(i => ({i, bet: room.bets[i]})).sort((a,b)=>a.bet-b.bet);
+  // Use total contributions across all streets
+  const allPlayers = room.players.map((_,i)=>i).filter(i => room.players[i]);
+  const contribs = allPlayers.map(i => ({
+    i,
+    contrib: room.totalContribs[i]||0,
+    folded: room.folded[i]
+  })).sort((a,b) => a.contrib - b.contrib);
+
   const pots = [];
   let prev = 0;
-  contribs.forEach(({bet},ci) => {
-    if (bet <= prev) return;
-    const level = bet - prev;
-    const eligible = contribs.slice(ci).map(x=>x.i);
-    const amount = level * involved.length;
-    pots.push({amount, eligible});
-    prev = bet;
+
+  contribs.forEach(({contrib, i: idx}, ci) => {
+    if (contrib <= prev) return;
+    const level = contrib - prev;
+    // All players who contributed at least this level
+    const eligible = contribs.slice(ci).filter(x => !x.folded).map(x => x.i);
+    // Amount = level * number of players who contributed at least this level
+    const contributors = contribs.filter(x => x.contrib >= contrib).length;
+    // Recalculate: each player contributes min(their_total, contrib) - prev
+    let amount = 0;
+    contribs.forEach(x => {
+      const contribution = Math.min(x.contrib, contrib) - prev;
+      if (contribution > 0) amount += contribution;
+    });
+    if (eligible.length > 0) pots.push({amount, eligible});
+    prev = contrib;
   });
+
   return pots;
 }
 
@@ -290,7 +309,12 @@ function doCall(room, idx) {
   room.chips[idx] -= toCall;
   room.bets[idx] += toCall;
   room.pot += toCall;
+  room.totalContribs[idx] = (room.totalContribs[idx]||0) + toCall;
   if (room.chips[idx]===0) room.allin[idx]=true;
+  // Si todos los que no han foldado están all-in, pasar de calle directamente
+  const nf = nonFolded(room);
+  const everyoneAllin = nf.every(i => room.allin[i]);
+  if (everyoneAllin) { nextStreet(room); return; }
   advanceTurn(room);
 }
 
@@ -302,12 +326,16 @@ function doRaise(room, idx, total) {
   room.chips[idx] -= add;
   room.bets[idx] = totalBet;
   room.pot += add;
+  room.totalContribs[idx] = (room.totalContribs[idx]||0) + add;
   room.currentBet = totalBet;
   room.lastRaiser = idx;
   if (room.chips[idx]===0) room.allin[idx]=true;
-  // Reset acted for everyone else so they must respond to the raise
   if (!room.acted) room.acted = new Array(room.players.length).fill(false);
   room.acted = room.acted.map((a, i) => i === idx ? true : false);
+  // Si todos están all-in tras el raise, pasar de calle
+  const nf = nonFolded(room);
+  const everyoneAllin = nf.every(i => room.allin[i]);
+  if (everyoneAllin) { nextStreet(room); return; }
   advanceTurn(room);
 }
 
