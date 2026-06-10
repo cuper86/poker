@@ -62,6 +62,13 @@ input::placeholder{color:#6b7280;}
 .hand-ranks{font-size:10px;color:rgba(255,255,255,0.3);text-align:center;line-height:1.9;margin-top:2px;}
 .lobby-info{font-size:13px;color:#86efac;text-align:center;}
 .countdown{font-size:32px;color:#fbbf24;font-weight:700;text-align:center;padding:10px;}
+.lobby-players{width:100%;display:flex;flex-direction:column;gap:6px;margin:6px 0;}
+.lobby-player{background:rgba(0,0,0,0.4);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:14px;}
+.lobby-player .lp-name{color:#86efac;font-weight:700;}
+.lobby-player .lp-chips{color:#fbbf24;}
+.btn-start{background:#f59e0b;color:#111;font-size:16px;font-weight:700;padding:14px 30px;border-radius:12px;border:none;cursor:pointer;width:100%;margin-top:8px;}
+.btn-start:active{opacity:.8;}
+.waiting-host{color:#86efac;font-size:13px;text-align:center;padding:8px;}
 .chat-wrap{width:100%;max-width:480px;background:rgba(0,0,0,0.45);border-radius:12px;border:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;overflow:hidden;margin-top:4px;}
 .chat-header{padding:6px 12px;font-size:12px;color:#86efac;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;}
 .chat-header span{color:#fbbf24;font-size:11px;}
@@ -95,6 +102,14 @@ input::placeholder{color:#6b7280;}
   <div class="lobby-info" id="lobby-info"></div>
   <div class="countdown" id="countdown" style="display:none;"></div>
 
+  <div id="lobby-section" style="display:none;width:100%;max-width:480px;">
+    <div style="color:#fbbf24;font-size:15px;font-weight:700;text-align:center;margin-bottom:8px;">Sala de espera</div>
+    <div class="lobby-players" id="lobby-players"></div>
+    <div id="start-btn-wrap" style="display:none;">
+      <button class="btn-start" onclick="startGame()">▶ Iniciar partida</button>
+    </div>
+    <div class="waiting-host" id="waiting-host" style="display:none;">Esperando a que el anfitrión inicie la partida...</div>
+  </div>
   <div class="players-grid" id="players-grid"></div>
 
   <div class="table-wrap">
@@ -160,15 +175,20 @@ function handleMsg(msg){
   if(msg.type==="playerJoined"){
     document.getElementById("lobby-info").textContent=
       "Sala: "+msg.count+" jugador"+(msg.count!==1?"es":"")+" conectado"+(msg.count!==1?"s":"");
-    setMsg(msg.count>=2?"Iniciando pronto...":"Esperando más jugadores...");
     if(msg.newName) addChatMsg("",msg.newName+" se ha unido a la sala",false,true);
+  }
+  if(msg.type==="lobby"){
+    showLobby(msg);
   }
   if(msg.type==="playerLeft"){
     document.getElementById("lobby-info").textContent=
       msg.names.filter(n=>n).length+" jugadores";
     if(msg.leftName) addChatMsg("",msg.leftName+" ha abandonado la sala",false,true);
   }
-  if(msg.type==="starting"){setMsg("Empieza en 5...");}
+  if(msg.type==="starting"){
+    setMsg("Empieza en 5...");
+    document.getElementById("lobby-section").style.display="none";
+  }
   if(msg.type==="countdown"){
     const cd=document.getElementById("countdown");
     cd.style.display="block";cd.textContent=msg.c||"";
@@ -372,6 +392,34 @@ function doRaise(){
 }
 
 const BB=20;
+
+function showLobby(msg){
+  const section=document.getElementById("lobby-section");
+  section.style.display="flex";
+  section.style.flexDirection="column";
+  const names=msg.names||[];
+  const chips=msg.chips||[];
+  let html="";
+  names.forEach((name,i)=>{
+    if(!name)return;
+    const isMe=i===mySeat;
+    const isHost=i===msg.host;
+    html+=`<div class="lobby-player">
+      <span class="lp-name">${name}${isMe?" (tú)":""}${isHost?" 👑":""}</span>
+      <span class="lp-chips">${chips[i]||1000} fichas</span>
+    </div>`;
+  });
+  document.getElementById("lobby-players").innerHTML=html;
+  const isHost=mySeat===msg.host;
+  document.getElementById("start-btn-wrap").style.display=isHost&&msg.count>=2?"block":"none";
+  document.getElementById("waiting-host").style.display=!isHost?"block":"none";
+  setMsg(isHost?"Pulsa Iniciar cuando estéis todos":"Esperando al anfitrión...");
+}
+
+function startGame(){
+  if(!ws||ws.readyState!==1)return;
+  ws.send(JSON.stringify({type:"startgame"}));
+}
 
 // --- CHAT ---
 let chatOpen=true, unreadCount=0;
