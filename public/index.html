@@ -486,8 +486,7 @@ function showLobby(msg){
 }
 
 function chipStack(amount){
-  const colors=amount>=500?'chip-k':amount>=100?'chip-b':amount>=50?'chip-r':amount>=10?'chip-g':'chip-w';
-  return`<span class="chip ${colors}"></span> <span style="color:var(--gold);font-size:12px;">${amount}</span>`;
+  return chipStackSVG(amount, 16) + `<span style="color:var(--gold);font-size:12px;">${amount}</span>`;
 }
 
 function startGame(){
@@ -498,7 +497,8 @@ function startGame(){
 function renderState(s){
   const streets=["Pre-flop","Flop","Turn","River","Showdown"];
   document.getElementById("street-display").textContent=streets[Math.min(s.street,4)];
-  document.getElementById("pot-display").textContent="Bote: "+s.pot;
+  const potEl=document.getElementById("pot-display");
+  potEl.innerHTML=chipStackSVG(s.pot,14)+'<span>Bote: '+s.pot+'</span>';
   document.getElementById("my-hand-name").textContent=s.myHandName||"";
   if(s.sidePots&&s.sidePots.length>1){
     document.getElementById("sidepots").textContent=
@@ -603,8 +603,8 @@ function renderPlayers(s){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div style="flex:1;min-width:0;">
           <div class="pname">${name}${isMe?" ✦":""}</div>
-          <div class="pchips-row">${chipIcon(chips)} <span class="pchips">${chips}</span></div>
-          <div class="pbet">${bet>0?"Apuesta: "+bet:""}</div>
+          <div class="pchips-row" style="display:flex;align-items:center;gap:3px;">${chipIcon(chips)}<span class="pchips">${chips}</span></div>
+          <div class="pbet">${bet>0?chipStackSVG(bet,12)+"Ap: "+bet:""}</div>
           <div class="pstatus">${statusTxt}</div>
           <div class="phandname">${handName||""}</div>
         </div>
@@ -616,11 +616,41 @@ function renderPlayers(s){
 }
 
 function chipIcon(amount){
-  if(amount>=500)return'<span class="chip chip-k"></span>';
-  if(amount>=100)return'<span class="chip chip-b"></span>';
-  if(amount>=50)return'<span class="chip chip-r"></span>';
-  if(amount>=10)return'<span class="chip chip-g"></span>';
-  return'<span class="chip chip-w"></span>';
+  return chipStackSVG(amount, 18);
+}
+
+function chipStackSVG(amount, size){
+  const chips = getChipBreakdown(amount);
+  if(chips.length===0) return '';
+  const colors = {'500':'#212121','100':'#1565c0','50':'#d32f2f','10':'#2e7d32','1':'#e0e0e0'};
+  const borders = {'500':'#424242','100':'#1976d2','50':'#e53935','10':'#388e3c','1':'#9e9e9e'};
+  const max=3;
+  const show=chips.slice(0,max);
+  const w=size, h=size, stack=3;
+  const totalW = w + (show.length-1)*4;
+  const totalH = h + stack;
+  let svgChips='';
+  show.forEach((chip,i)=>{
+    const x=i*4, y=stack-(i*1);
+    const col=colors[chip.val]||'#888';
+    const brd=borders[chip.val]||'#555';
+    svgChips+=`<ellipse cx="${x+w/2}" cy="${y+h*0.15}" rx="${w/2}" ry="${h*0.12}" fill="${brd}"/>
+    <rect x="${x}" y="${y}" width="${w}" height="${h*0.85}" rx="${w*0.15}" fill="${col}"/>
+    <ellipse cx="${x+w/2}" cy="${y}" rx="${w/2}" ry="${h*0.12}" fill="${col}"/>
+    <ellipse cx="${x+w/2}" cy="${y}" rx="${w*0.3}" ry="${h*0.07}" fill="rgba(255,255,255,0.25)"/>`;
+  });
+  return `<svg width="${totalW+4}" height="${totalH+4}" style="vertical-align:middle;margin-right:3px;" viewBox="0 0 ${totalW+4} ${totalH+4}">${svgChips}</svg>`;
+}
+
+function getChipBreakdown(amount){
+  const denoms=[500,100,50,10,1];
+  const chips=[];
+  let rem=amount;
+  denoms.forEach(d=>{
+    const n=Math.floor(rem/d);
+    if(n>0){chips.push({val:String(d),count:n});rem-=n*d;}
+  });
+  return chips;
 }
 
 function smallCard(c){
