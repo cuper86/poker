@@ -462,6 +462,8 @@ function handleMsg(msg){
   if(msg.type==="chatSystem"){addChatMsg("",msg.text,false,true);}
   if(msg.type==="waitingNext"){setMsg("Esperando confirmación...");}
   if(msg.type==="disconnected"){setMsg("Un jugador se ha desconectado.");}
+  if(msg.type==="gameover"){showGameOver(msg.msg, false);}
+  if(msg.type==="gamewon"){showGameOver("¡"+msg.name+" gana la partida! 🏆", true);}
   if(msg.type==="state"){lastState=msg;renderState(msg);}
 }
 
@@ -736,6 +738,48 @@ function addChatMsg(name,text,isMe,isSystem=false){
 }
 function escapeHtml(t){
   return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function showGameOver(message, isWin){
+  setActions([]);
+  document.getElementById("raise-row").style.display="none";
+  document.getElementById("players-grid").innerHTML="";
+  document.getElementById("community-cards").innerHTML="";
+  document.getElementById("my-cards").innerHTML="";
+  document.getElementById("my-hand-name").textContent="";
+  document.getElementById("sidepots").textContent="";
+
+  const gameScreen=document.getElementById("screen-game");
+  
+  // Remove existing gameover if any
+  const existing=document.getElementById("gameover-overlay");
+  if(existing)existing.remove();
+
+  const overlay=document.createElement("div");
+  overlay.id="gameover-overlay";
+  overlay.style.cssText=`
+    width:100%;max-width:480px;
+    background:rgba(0,0,0,0.9);
+    border:1px solid ${isWin?"var(--gold)":"#8b1a1a"};
+    border-radius:16px;padding:32px 20px;
+    text-align:center;margin:16px 0;
+    display:flex;flex-direction:column;gap:16px;
+    align-items:center;
+  `;
+  overlay.innerHTML=`
+    <div style="font-family:'Playfair Display',serif;font-size:${isWin?'42px':'36px'};color:${isWin?"var(--gold)":"#ef4444"};">
+      ${isWin?"🏆":"💀"}
+    </div>
+    <div style="font-family:'Playfair Display',serif;font-size:20px;color:${isWin?"var(--gold)":"#ef4444"};">
+      ${isWin?"¡GANADOR!":"GAME OVER"}
+    </div>
+    <div style="font-size:14px;color:var(--text-dim);max-width:280px;">${message}</div>
+    <button class="btn btn-gold" style="max-width:200px;" onclick="location.reload()">
+      Nueva partida
+    </button>
+  `;
+  gameScreen.appendChild(overlay);
+  setMsg(isWin?"¡Partida terminada!":"Sin fichas");
 }
 
 const BB=20;
