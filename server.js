@@ -624,31 +624,29 @@ wss.on("connection", ws => {
       return;
     }
 
-    // WebRTC signaling — forward offer/answer/ice to target peer
-    if ((msg.type==="rtc-offer"||msg.type==="rtc-answer"||msg.type==="rtc-ice") && currentRoom) {
-      const target = currentRoom.players[msg.to];
-      if (target && target.ws.readyState===1) {
-        target.ws.send(JSON.stringify({...msg, from: seatIndex}));
-      }
-      return;
-    }
-
-    // WebRTC — broadcast to all others that this player activated their camera
-    if (msg.type==="rtc-joined" && currentRoom) {
+    // Video frame relay — broadcast JPEG frame to all other players
+    if (msg.type==="video-frame" && currentRoom) {
+      const out = JSON.stringify({type:"video-frame", from: seatIndex, frame: msg.frame});
       currentRoom.players.forEach((p, i) => {
-        if (i !== seatIndex && p && p.ws.readyState===1) {
-          p.ws.send(JSON.stringify({type:"rtc-peer-joined", from: seatIndex, name: currentRoom.players[seatIndex].name}));
-        }
+        if (i !== seatIndex && p && p.ws.readyState===1) p.ws.send(out);
       });
       return;
     }
 
-    // WebRTC — broadcast that this player left video
+    // Camera joined/left broadcast
+    if (msg.type==="rtc-joined" && currentRoom) {
+      const name = currentRoom.players[seatIndex] ? currentRoom.players[seatIndex].name : "?";
+      currentRoom.players.forEach((p, i) => {
+        if (i !== seatIndex && p && p.ws.readyState===1)
+          p.ws.send(JSON.stringify({type:"rtc-peer-joined", from: seatIndex, name}));
+      });
+      return;
+    }
+
     if (msg.type==="rtc-left" && currentRoom) {
       currentRoom.players.forEach((p, i) => {
-        if (i !== seatIndex && p && p.ws.readyState===1) {
+        if (i !== seatIndex && p && p.ws.readyState===1)
           p.ws.send(JSON.stringify({type:"rtc-peer-left", from: seatIndex}));
-        }
       });
       return;
     }
