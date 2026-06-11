@@ -623,6 +623,15 @@ wss.on("connection", ws => {
       broadcast(currentRoom, {type:"playerLeft", seatIndex, names: currentRoom.players.map(p=>p?p.name:null), leftName: leavingName});
       return;
     }
+
+    // WebRTC signaling — forward offer/answer/ice to target peer
+    if ((msg.type==="rtc-offer"||msg.type==="rtc-answer"||msg.type==="rtc-ice") && currentRoom) {
+      const target = currentRoom.players[msg.to];
+      if (target && target.ws.readyState===1) {
+        target.ws.send(JSON.stringify({...msg, from: seatIndex}));
+      }
+      return;
+    }
   });
 
   ws.on("close", () => {
