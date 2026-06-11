@@ -572,12 +572,32 @@ wss.on("connection", ws => {
 
     if (msg.type==="newhand" && currentRoom) {
       if (currentRoom.state!=="showdown") return;
+      // If this player is broke, they can't vote for new hand
+      if (currentRoom.chips[seatIndex] <= 0) return;
       currentRoom.readyVotes.add(seatIndex);
-      const needed = currentRoom.players.filter(p=>p).length;
+      // Only count votes from players who still have chips
+      const activePlayers = currentRoom.players.filter((p,i) => p && currentRoom.chips[i] > 0);
+      const needed = activePlayers.length;
       broadcast(currentRoom, {type:"readyVote", votes: currentRoom.readyVotes.size, needed});
       if (currentRoom.readyVotes.size >= needed) {
         currentRoom.readyVotes = new Set();
-        currentRoom.players.forEach((p,i)=>{ if(p && currentRoom.chips[i]<=0) currentRoom.chips[i]=1000; });
+        // Remove broke players
+        currentRoom.players.forEach((p,i) => {
+          if (p && currentRoom.chips[i] <= 0) {
+            p.ws.send(JSON.stringify({type:"gameover", msg:"Te has quedado sin fichas. ¡Game Over!"}));
+            currentRoom.players[i] = null;
+          }
+        });
+        const remaining = currentRoom.players.filter(p=>p).length;
+        if (remaining < 2) {
+          // Only one player left - they win the whole game
+          const winnerIdx = currentRoom.players.findIndex(p=>p);
+          if (winnerIdx >= 0) {
+            broadcast(currentRoom, {type:"gamewon", name: currentRoom.players[winnerIdx].name});
+          }
+          currentRoom.state = "waiting";
+          return;
+        }
         currentRoom.dealer = (currentRoom.dealer+1) % currentRoom.players.length;
         while (!currentRoom.players[currentRoom.dealer]) {
           currentRoom.dealer = (currentRoom.dealer+1)%currentRoom.players.length;
