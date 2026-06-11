@@ -857,7 +857,24 @@ let muted=false;
 const RTC_CONFIG={
   iceServers:[
     {urls:"stun:stun.l.google.com:19302"},
-    {urls:"stun:stun1.l.google.com:19302"}
+    {urls:"stun:stun1.l.google.com:19302"},
+    {urls:"stun:stun2.l.google.com:19302"},
+    {urls:"stun:stun3.l.google.com:19302"},
+    {
+      urls:"turn:openrelay.metered.ca:80",
+      username:"openrelayproject",
+      credential:"openrelayproject"
+    },
+    {
+      urls:"turn:openrelay.metered.ca:443",
+      username:"openrelayproject",
+      credential:"openrelayproject"
+    },
+    {
+      urls:"turn:openrelay.metered.ca:443?transport=tcp",
+      username:"openrelayproject",
+      credential:"openrelayproject"
+    }
   ]
 };
 
@@ -945,17 +962,25 @@ function removeVideoTile(seatIdx){
 }
 
 async function createOffer(targetSeat, targetName){
-  if(peers[targetSeat])return;
+  if(peers[targetSeat])peers[targetSeat].close();
   const pc=new RTCPeerConnection(RTC_CONFIG);
   peers[targetSeat]=pc;
   if(localStream)localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
   pc.ontrack=e=>{
     if(e.streams&&e.streams[0]){
-      setTimeout(()=>addVideoTile(targetSeat,targetName,e.streams[0],false),200);
+      setTimeout(()=>addVideoTile(targetSeat,targetName,e.streams[0],false),300);
     }
   };
   pc.onicecandidate=e=>{
     if(e.candidate&&ws)ws.send(JSON.stringify({type:"rtc-ice",to:targetSeat,candidate:e.candidate}));
+  };
+  pc.onconnectionstatechange=()=>{
+    const tile=document.getElementById("vtile-"+targetSeat);
+    if(tile){
+      const nameEl=tile.querySelector(".vt-name");
+      if(nameEl&&pc.connectionState==="connected")nameEl.style.background="rgba(0,100,0,0.8)";
+      if(nameEl&&pc.connectionState==="failed")nameEl.style.background="rgba(100,0,0,0.8)";
+    }
   };
   const offer=await pc.createOffer();
   await pc.setLocalDescription(offer);
