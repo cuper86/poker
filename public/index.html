@@ -510,9 +510,20 @@ function handleMsg(msg){
     removeVideoTile(msg.playerIdx);
     if(peers[msg.playerIdx]){peers[msg.playerIdx].close();delete peers[msg.playerIdx];}
   }
-  if(msg.type==="rtc-offer"&&rtcActive){
+  if(msg.type==="rtc-peer-joined"){
+    // Another player activated their camera — if we have camera too, send them an offer
+    if(rtcActive){
+      createOffer(msg.from, msg.name);
+    }
+  }
+  if(msg.type==="rtc-peer-left"){
+    removeVideoTile(msg.from);
+    if(peers[msg.from]){peers[msg.from].close();delete peers[msg.from];}
+  }
+  if(msg.type==="rtc-offer"){
+    // Someone sent us an offer — answer even if we don't have camera (audio only)
     const name=lastState&&lastState.names?lastState.names[msg.from]:"?";
-    handleRTCOffer(msg.from,name,msg.sdp);
+    if(rtcActive) handleRTCOffer(msg.from,name,msg.sdp);
   }
   if(msg.type==="rtc-answer"&&rtcActive){handleRTCAnswer(msg.from,msg.sdp);}
   if(msg.type==="rtc-ice"&&rtcActive){handleRTCIce(msg.from,msg.candidate);}
@@ -859,12 +870,8 @@ async function joinRTC(){
     document.getElementById("rtc-mute-btn").style.display="inline-block";
     document.getElementById("video-bar").style.display="flex";
     addVideoTile(mySeat, myName, localStream, true);
-    // Connect to all existing peers
-    if(lastState&&lastState.names){
-      lastState.names.forEach((name,i)=>{
-        if(name&&i!==mySeat) createOffer(i, name);
-      });
-    }
+    // Tell all others I joined with camera — they will send me offers
+    if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"rtc-joined"}));
   }catch(e){
     alert("No se pudo acceder a la cámara/micrófono: "+e.message);
   }
@@ -874,6 +881,7 @@ function leaveRTC(){
   if(localStream)localStream.getTracks().forEach(t=>t.stop());
   Object.values(peers).forEach(pc=>pc.close());
   peers={};localStream=null;rtcActive=false;
+  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"rtc-left"}));
   document.getElementById("video-bar").innerHTML="";
   document.getElementById("video-bar").style.display="none";
   document.getElementById("rtc-join-btn").style.display="inline-block";
