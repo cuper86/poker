@@ -360,27 +360,24 @@ function advanceTurn(room) {
   // Si nadie puede actuar, pasar de calle
   if (active.length === 0) { nextStreet(room); return; }
 
-  // Si todos han actuado e igualado, pasar de calle
-  const allActed = active.every(i => room.acted[i]);
-  const allCalled = active.every(i => room.bets[i] >= room.currentBet);
-  if (allActed && allCalled) { nextStreet(room); return; }
-
-  // Buscar siguiente jugador activo (no foldeado, no all-in)
+  // Buscar el siguiente jugador que necesita actuar:
+  // - no ha igualado la apuesta actual, O
+  // - no ha actuado todavía esta calle
   const n = room.players.length;
   let next = -1;
   for (let step = 1; step < n; step++) {
     const idx = (room.actionOn + step) % n;
     if (!room.players[idx] || room.folded[idx] || room.allin[idx]) continue;
-    next = idx;
-    break;
+    const needsToCall = room.bets[idx] < room.currentBet;
+    const hasntActed = !room.acted[idx];
+    if (needsToCall || hasntActed) {
+      next = idx;
+      break;
+    }
   }
 
+  // Si no hay nadie que necesite actuar, fin de calle
   if (next === -1) { nextStreet(room); return; }
-
-  // Si el siguiente ya actuó e igualó, fin de calle
-  if (room.acted[next] && room.bets[next] >= room.currentBet) {
-    nextStreet(room); return;
-  }
 
   room.actionOn = next;
   startTimer(room);
