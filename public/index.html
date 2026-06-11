@@ -508,25 +508,18 @@ function handleMsg(msg){
   if(msg.type==="disconnected"){
     setMsg("Un jugador se ha desconectado.");
     removeVideoTile(msg.playerIdx);
-    if(peers[msg.playerIdx]){peers[msg.playerIdx].close();delete peers[msg.playerIdx];}
   }
   if(msg.type==="rtc-peer-joined"){
-    // Another player activated their camera — if we have camera too, send them an offer
-    if(rtcActive){
-      createOffer(msg.from, msg.name);
-    }
+    const name=lastState&&lastState.names?lastState.names[msg.from]:msg.name||"?";
+    addVideoTile(msg.from, name);
   }
   if(msg.type==="rtc-peer-left"){
     removeVideoTile(msg.from);
-    if(peers[msg.from]){peers[msg.from].close();delete peers[msg.from];}
   }
-  if(msg.type==="rtc-offer"){
-    // Someone sent us an offer — answer even if we don't have camera (audio only)
+  if(msg.type==="video-frame"){
     const name=lastState&&lastState.names?lastState.names[msg.from]:"?";
-    if(rtcActive) handleRTCOffer(msg.from,name,msg.sdp);
+    updateRemoteFrame(msg.from, name, msg.frame);
   }
-  if(msg.type==="rtc-answer"&&rtcActive){handleRTCAnswer(msg.from,msg.sdp);}
-  if(msg.type==="rtc-ice"&&rtcActive){handleRTCIce(msg.from,msg.candidate);}
   if(msg.type==="gameover"){showGameOver(msg.msg, false);}
   if(msg.type==="gamewon"){showGameOver("¡"+msg.name+" gana la partida! 🏆", true);}
   if(msg.type==="state"){lastState=msg;renderState(msg);}
@@ -847,41 +840,19 @@ function showGameOver(message, isWin){
   setMsg(isWin?"¡Partida terminada!":"Sin fichas");
 }
 
-// ── WebRTC ──
+// ── VIDEO via WebSocket (canvas frames) ──
 let localStream=null;
-let peers={};  // seatIndex -> RTCPeerConnection
-let myVideoEl=null;
 let rtcActive=false;
 let muted=false;
-
-const RTC_CONFIG={
-  iceServers:[
-    {urls:"stun:stun.l.google.com:19302"},
-    {urls:"stun:stun1.l.google.com:19302"},
-    {urls:"stun:stun2.l.google.com:19302"},
-    {urls:"stun:stun3.l.google.com:19302"},
-    {
-      urls:"turn:openrelay.metered.ca:80",
-      username:"openrelayproject",
-      credential:"openrelayproject"
-    },
-    {
-      urls:"turn:openrelay.metered.ca:443",
-      username:"openrelayproject",
-      credential:"openrelayproject"
-    },
-    {
-      urls:"turn:openrelay.metered.ca:443?transport=tcp",
-      username:"openrelayproject",
-      credential:"openrelayproject"
-    }
-  ]
-};
+let frameInterval=null;
+let captureCanvas=document.createElement("canvas");
+captureCanvas.width=160;captureCanvas.height=120;
+let captureCtx=captureCanvas.getContext("2d");
 
 async function joinRTC(){
   try{
     localStream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:"user",width:{ideal:320},height:{ideal:240}},
+      video:{facingMode:"user",width:{ideal:160},height:{ideal:120}},
       audio:{echoCancellation:true,noiseSuppression:true}
     });
     rtcActive=true;
@@ -889,18 +860,54 @@ async function joinRTC(){
     document.getElementById("rtc-leave-btn").style.display="inline-block";
     document.getElementById("rtc-mute-btn").style.display="inline-block";
     document.getElementById("video-bar").style.display="flex";
-    addVideoTile(mySeat, myName, localStream, true);
-    // Tell all others I joined with camera — they will send me offers
+
+    // Show my own video locally
+    addLocalVideo();
+
+    // Start sending frames every 200ms
+    const tmpVid=document.createElement("video");
+    tmpVid.srcObject=localStream;tmpVid.autoplay=true;tmpVid.muted=true;tmpVid.playsInline=true;
+    tmpVid.play();
+    frameInterval=setInterval(()=>{
+      if(!rtcActive)return;
+      try{
+        captureCtx.drawImage(tmpVid,0,0,160,120);
+        const frame=captureCanvas.toDataURL("image/jpeg",0.5);
+        if(ws&&ws.readyState===1){
+          ws.send(JSON.stringify({type:"video-frame",frame}));
+        }
+      }catch(e){}
+    },200);
+
     if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"rtc-joined"}));
   }catch(e){
     alert("No se pudo acceder a la cámara/micrófono: "+e.message);
   }
 }
 
+function addLocalVideo(){
+  const bar=document.getElementById("video-bar");
+  let tile=document.getElementById("vtile-"+mySeat);
+  if(!tile){
+    tile=document.createElement("div");
+    tile.className="video-tile me-tile";
+    tile.id="vtile-"+mySeat;
+    const vid=document.createElement("video");
+    vid.autoplay=true;vid.playsInline=true;vid.muted=true;
+    vid.srcObject=localStream;
+    setTimeout(()=>vid.play().catch(()=>{}),100);
+    tile.appendChild(vid);
+    const nameEl=document.createElement("div");
+    nameEl.className="vt-name";nameEl.textContent="Tú";
+    tile.appendChild(nameEl);
+    bar.appendChild(tile);
+  }
+}
+
 function leaveRTC(){
+  if(frameInterval)clearInterval(frameInterval);frameInterval=null;
   if(localStream)localStream.getTracks().forEach(t=>t.stop());
-  Object.values(peers).forEach(pc=>pc.close());
-  peers={};localStream=null;rtcActive=false;
+  localStream=null;rtcActive=false;
   if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"rtc-left"}));
   document.getElementById("video-bar").innerHTML="";
   document.getElementById("video-bar").style.display="none";
@@ -916,44 +923,28 @@ function toggleMute(){
   const btn=document.getElementById("rtc-mute-btn");
   btn.textContent=muted?"🔇 Activar mic":"🎙️ Silenciar";
   btn.className=muted?"rtc-btn danger":"rtc-btn";
-  const tile=document.getElementById("vtile-"+mySeat);
-  if(tile){
-    let muteIcon=tile.querySelector(".vt-muted");
-    if(muted&&!muteIcon){
-      muteIcon=document.createElement("div");
-      muteIcon.className="vt-muted";muteIcon.textContent="🔇";
-      tile.appendChild(muteIcon);
-    }else if(!muted&&muteIcon){muteIcon.remove();}
-  }
 }
 
-function addVideoTile(seatIdx, name, stream, isMe){
+function addVideoTile(seatIdx, name){
   const bar=document.getElementById("video-bar");
-  let tile=document.getElementById("vtile-"+seatIdx);
-  if(!tile){
-    tile=document.createElement("div");
-    tile.className="video-tile"+(isMe?" me-tile":"");
-    tile.id="vtile-"+seatIdx;
-    const vid=document.createElement("video");
-    vid.autoplay=true;
-    vid.playsInline=true;
-    vid.setAttribute("playsinline","");
-    vid.setAttribute("webkit-playsinline","");
-    if(isMe)vid.muted=true;
-    vid.muted=isMe;
-    tile.appendChild(vid);
-    const nameEl=document.createElement("div");
-    nameEl.className="vt-name";
-    nameEl.textContent=(isMe?"Tú":name)||"?";
-    tile.appendChild(nameEl);
-    bar.appendChild(tile);
-  }
-  const vid=tile.querySelector("video");
-  // Assign srcObject after tile is in DOM
-  setTimeout(()=>{
-    vid.srcObject=stream;
-    vid.play().catch(e=>console.log("video play error:",e));
-  }, 100);
+  if(document.getElementById("vtile-"+seatIdx))return;
+  const tile=document.createElement("div");
+  tile.className="video-tile";
+  tile.id="vtile-"+seatIdx;
+  const img=document.createElement("img");
+  img.style.cssText="width:100%;height:100%;object-fit:cover;";
+  img.id="vimg-"+seatIdx;
+  tile.appendChild(img);
+  const nameEl=document.createElement("div");
+  nameEl.className="vt-name";nameEl.textContent=name||"?";
+  tile.appendChild(nameEl);
+  bar.appendChild(tile);
+}
+
+function updateRemoteFrame(seatIdx, name, frame){
+  if(!document.getElementById("vtile-"+seatIdx)) addVideoTile(seatIdx, name);
+  const img=document.getElementById("vimg-"+seatIdx);
+  if(img) img.src=frame;
 }
 
 function removeVideoTile(seatIdx){
@@ -961,59 +952,9 @@ function removeVideoTile(seatIdx){
   if(tile)tile.remove();
 }
 
-async function createOffer(targetSeat, targetName){
-  if(peers[targetSeat])peers[targetSeat].close();
-  const pc=new RTCPeerConnection(RTC_CONFIG);
-  peers[targetSeat]=pc;
-  if(localStream)localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-  pc.ontrack=e=>{
-    if(e.streams&&e.streams[0]){
-      setTimeout(()=>addVideoTile(targetSeat,targetName,e.streams[0],false),300);
-    }
-  };
-  pc.onicecandidate=e=>{
-    if(e.candidate&&ws)ws.send(JSON.stringify({type:"rtc-ice",to:targetSeat,candidate:e.candidate}));
-  };
-  pc.onconnectionstatechange=()=>{
-    const tile=document.getElementById("vtile-"+targetSeat);
-    if(tile){
-      const nameEl=tile.querySelector(".vt-name");
-      if(nameEl&&pc.connectionState==="connected")nameEl.style.background="rgba(0,100,0,0.8)";
-      if(nameEl&&pc.connectionState==="failed")nameEl.style.background="rgba(100,0,0,0.8)";
-    }
-  };
-  const offer=await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  if(ws)ws.send(JSON.stringify({type:"rtc-offer",to:targetSeat,sdp:pc.localDescription}));
-}
-
-async function handleRTCOffer(fromSeat, fromName, sdp){
-  if(peers[fromSeat])peers[fromSeat].close();
-  const pc=new RTCPeerConnection(RTC_CONFIG);
-  peers[fromSeat]=pc;
-  if(localStream)localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-  pc.ontrack=e=>{
-    if(e.streams&&e.streams[0]){
-      setTimeout(()=>addVideoTile(fromSeat,fromName,e.streams[0],false),200);
-    }
-  };
-  pc.onicecandidate=e=>{
-    if(e.candidate&&ws)ws.send(JSON.stringify({type:"rtc-ice",to:fromSeat,candidate:e.candidate}));
-  };
-  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-  const answer=await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  if(ws)ws.send(JSON.stringify({type:"rtc-answer",to:fromSeat,sdp:pc.localDescription}));
-}
-
-async function handleRTCAnswer(fromSeat, sdp){
-  const pc=peers[fromSeat];
-  if(pc)await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-}
-
-async function handleRTCIce(fromSeat, candidate){
-  const pc=peers[fromSeat];
-  if(pc&&candidate)await pc.addIceCandidate(new RTCIceCandidate(candidate));
+// Peer joined — create tile placeholder
+function createOffer(targetSeat, targetName){
+  addVideoTile(targetSeat, targetName);
 }
 
 const BB=20;
