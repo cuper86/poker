@@ -632,6 +632,26 @@ wss.on("connection", ws => {
       }
       return;
     }
+
+    // WebRTC — broadcast to all others that this player activated their camera
+    if (msg.type==="rtc-joined" && currentRoom) {
+      currentRoom.players.forEach((p, i) => {
+        if (i !== seatIndex && p && p.ws.readyState===1) {
+          p.ws.send(JSON.stringify({type:"rtc-peer-joined", from: seatIndex, name: currentRoom.players[seatIndex].name}));
+        }
+      });
+      return;
+    }
+
+    // WebRTC — broadcast that this player left video
+    if (msg.type==="rtc-left" && currentRoom) {
+      currentRoom.players.forEach((p, i) => {
+        if (i !== seatIndex && p && p.ws.readyState===1) {
+          p.ws.send(JSON.stringify({type:"rtc-peer-left", from: seatIndex}));
+        }
+      });
+      return;
+    }
   });
 
   ws.on("close", () => {
