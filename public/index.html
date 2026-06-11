@@ -863,7 +863,10 @@ const RTC_CONFIG={
 
 async function joinRTC(){
   try{
-    localStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    localStream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:"user",width:{ideal:320},height:{ideal:240}},
+      audio:{echoCancellation:true,noiseSuppression:true}
+    });
     rtcActive=true;
     document.getElementById("rtc-join-btn").style.display="none";
     document.getElementById("rtc-leave-btn").style.display="inline-block";
@@ -915,8 +918,12 @@ function addVideoTile(seatIdx, name, stream, isMe){
     tile.className="video-tile"+(isMe?" me-tile":"");
     tile.id="vtile-"+seatIdx;
     const vid=document.createElement("video");
-    vid.autoplay=true;vid.playsInline=true;
+    vid.autoplay=true;
+    vid.playsInline=true;
+    vid.setAttribute("playsinline","");
+    vid.setAttribute("webkit-playsinline","");
     if(isMe)vid.muted=true;
+    vid.muted=isMe;
     tile.appendChild(vid);
     const nameEl=document.createElement("div");
     nameEl.className="vt-name";
@@ -925,7 +932,11 @@ function addVideoTile(seatIdx, name, stream, isMe){
     bar.appendChild(tile);
   }
   const vid=tile.querySelector("video");
-  vid.srcObject=stream;
+  // Assign srcObject after tile is in DOM
+  setTimeout(()=>{
+    vid.srcObject=stream;
+    vid.play().catch(e=>console.log("video play error:",e));
+  }, 100);
 }
 
 function removeVideoTile(seatIdx){
@@ -939,7 +950,9 @@ async function createOffer(targetSeat, targetName){
   peers[targetSeat]=pc;
   if(localStream)localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
   pc.ontrack=e=>{
-    if(e.streams&&e.streams[0])addVideoTile(targetSeat,targetName,e.streams[0],false);
+    if(e.streams&&e.streams[0]){
+      setTimeout(()=>addVideoTile(targetSeat,targetName,e.streams[0],false),200);
+    }
   };
   pc.onicecandidate=e=>{
     if(e.candidate&&ws)ws.send(JSON.stringify({type:"rtc-ice",to:targetSeat,candidate:e.candidate}));
@@ -955,7 +968,9 @@ async function handleRTCOffer(fromSeat, fromName, sdp){
   peers[fromSeat]=pc;
   if(localStream)localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
   pc.ontrack=e=>{
-    if(e.streams&&e.streams[0])addVideoTile(fromSeat,fromName,e.streams[0],false);
+    if(e.streams&&e.streams[0]){
+      setTimeout(()=>addVideoTile(fromSeat,fromName,e.streams[0],false),200);
+    }
   };
   pc.onicecandidate=e=>{
     if(e.candidate&&ws)ws.send(JSON.stringify({type:"rtc-ice",to:fromSeat,candidate:e.candidate}));
