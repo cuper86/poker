@@ -680,10 +680,18 @@ function handleMsg(msg){
   if(msg.type==="rtc-peer-joined"){
     const name=lastState&&lastState.names?lastState.names[msg.from]:msg.name||"?";
     addVideoTile(msg.from, name);
+    // Start audio connection with new peer
+    if(rtcActive) createAudioOffer(msg.from);
   }
   if(msg.type==="rtc-peer-left"){
     removeVideoTile(msg.from);
+    if(audioPeers[msg.from]){audioPeers[msg.from].close();delete audioPeers[msg.from];}
+    const audioEl=document.getElementById("audio-"+msg.from);
+    if(audioEl)audioEl.remove();
   }
+  if(msg.type==="audio-offer"&&rtcActive){handleAudioOffer(msg.from,msg.sdp);}
+  if(msg.type==="audio-answer"&&rtcActive){handleAudioAnswer(msg.from,msg.sdp);}
+  if(msg.type==="audio-ice"&&rtcActive){handleAudioIce(msg.from,msg.candidate);}
   if(msg.type==="video-frame"){
     const name=lastState&&lastState.names?lastState.names[msg.from]:"?";
     updateRemoteFrame(msg.from, name, msg.frame);
@@ -1015,7 +1023,7 @@ function showGameOver(message, isWin){
   setMsg(isWin?"¡Partida terminada!":"Sin fichas");
 }
 
-// ── VIDEO via WebSocket (canvas frames) ──
+// ── VIDEO via WebSocket + AUDIO via WebRTC ──
 let localStream=null;
 let rtcActive=false;
 let muted=false;
@@ -1023,6 +1031,81 @@ let frameInterval=null;
 let captureCanvas=document.createElement("canvas");
 captureCanvas.width=160;captureCanvas.height=120;
 let captureCtx=captureCanvas.getContext("2d");
+
+// Audio-only WebRTC peers
+let audioPeers={};
+const AUDIO_RTC_CONFIG={
+  iceServers:[
+    {urls:"stun:stun.l.google.com:19302"},
+    {urls:"stun:stun1.l.google.com:19302"},
+    {urls:"turn:openrelay.metered.ca:80",username:"openrelayproject",credential:"openrelayproject"},
+    {urls:"turn:openrelay.metered.ca:443",username:"openrelayproject",credential:"openrelayproject"},
+    {urls:"turn:openrelay.metered.ca:443?transport=tcp",username:"openrelayproject",credential:"openrelayproject"}
+  ]
+};
+
+async function createAudioOffer(targetSeat){
+  if(audioPeers[targetSeat])audioPeers[targetSeat].close();
+  const pc=new RTCPeerConnection(AUDIO_RTC_CONFIG);
+  audioPeers[targetSeat]=pc;
+  // Add only audio track
+  if(localStream){
+    localStream.getAudioTracks().forEach(t=>pc.addTrack(t,localStream));
+  }
+  pc.ontrack=e=>{
+    if(e.streams&&e.streams[0]){
+      playRemoteAudio(targetSeat, e.streams[0]);
+    }
+  };
+  pc.onicecandidate=e=>{
+    if(e.candidate&&ws) ws.send(JSON.stringify({type:"audio-ice",to:targetSeat,candidate:e.candidate}));
+  };
+  const offer=await pc.createOffer({offerToReceiveAudio:true,offerToReceiveVideo:false});
+  await pc.setLocalDescription(offer);
+  if(ws) ws.send(JSON.stringify({type:"audio-offer",to:targetSeat,sdp:pc.localDescription}));
+}
+
+async function handleAudioOffer(fromSeat, sdp){
+  if(audioPeers[fromSeat])audioPeers[fromSeat].close();
+  const pc=new RTCPeerConnection(AUDIO_RTC_CONFIG);
+  audioPeers[fromSeat]=pc;
+  if(localStream){
+    localStream.getAudioTracks().forEach(t=>pc.addTrack(t,localStream));
+  }
+  pc.ontrack=e=>{
+    if(e.streams&&e.streams[0]) playRemoteAudio(fromSeat, e.streams[0]);
+  };
+  pc.onicecandidate=e=>{
+    if(e.candidate&&ws) ws.send(JSON.stringify({type:"audio-ice",to:fromSeat,candidate:e.candidate}));
+  };
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  const answer=await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  if(ws) ws.send(JSON.stringify({type:"audio-answer",to:fromSeat,sdp:pc.localDescription}));
+}
+
+async function handleAudioAnswer(fromSeat, sdp){
+  const pc=audioPeers[fromSeat];
+  if(pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+}
+
+async function handleAudioIce(fromSeat, candidate){
+  const pc=audioPeers[fromSeat];
+  if(pc&&candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+}
+
+function playRemoteAudio(seatIdx, stream){
+  let audioEl=document.getElementById("audio-"+seatIdx);
+  if(!audioEl){
+    audioEl=document.createElement("audio");
+    audioEl.id="audio-"+seatIdx;
+    audioEl.autoplay=true;
+    audioEl.style.display="none";
+    document.body.appendChild(audioEl);
+  }
+  audioEl.srcObject=stream;
+  audioEl.play().catch(()=>{});
+}
 
 async function joinRTC(){
   try{
@@ -1055,6 +1138,12 @@ async function joinRTC(){
     },200);
 
     if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"rtc-joined"}));
+    // Start audio WebRTC with all existing players
+    if(lastState&&lastState.names){
+      lastState.names.forEach((name,i)=>{
+        if(name&&i!==mySeat) createAudioOffer(i);
+      });
+    }
   }catch(e){
     alert("No se pudo acceder a la cámara/micrófono: "+e.message);
   }
@@ -1082,6 +1171,10 @@ function addLocalVideo(){
 function leaveRTC(){
   if(frameInterval)clearInterval(frameInterval);frameInterval=null;
   if(localStream)localStream.getTracks().forEach(t=>t.stop());
+  Object.values(audioPeers).forEach(pc=>pc.close());
+  audioPeers={};
+  // Remove audio elements
+  document.querySelectorAll("audio[id^='audio-']").forEach(el=>el.remove());
   localStream=null;rtcActive=false;
   if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"rtc-left"}));
   document.getElementById("video-bar").innerHTML="";
@@ -1098,6 +1191,14 @@ function toggleMute(){
   const btn=document.getElementById("rtc-mute-btn");
   btn.textContent=muted?"🔇 Activar mic":"🎙️ Silenciar";
   btn.className=muted?"rtc-btn danger":"rtc-btn";
+  // Visual indicator on video tile
+  const tile=document.getElementById("vtile-"+mySeat);
+  if(tile){
+    let icon=tile.querySelector(".vt-muted");
+    if(muted&&!icon){
+      icon=document.createElement("div");icon.className="vt-muted";icon.textContent="🔇";tile.appendChild(icon);
+    }else if(!muted&&icon){icon.remove();}
+  }
 }
 
 function addVideoTile(seatIdx, name){
