@@ -82,16 +82,17 @@ function evalFive(cards) {
   const straight = u.length >= 5 && (u[0]-u[4]===4 || (u[0]===14&&u[1]===5&&u[2]===4&&u[3]===3&&u[4]===2));
   const sv = () => (vals[0]===14&&vals[1]===5)?[5,4,3,2,1]:vals;
   const c = counts;
+  const rn = v => ({14:"Ases",13:"Reyes",12:"Reinas",11:"Jotas",10:"Dieces"}[v]||v+"s");
   if (flush&&straight&&vals[0]===14&&vals[4]===10) return {rank:9,name:"Escalera real",tb:[14]};
   if (flush&&straight) return {rank:8,name:"Escalera de color",tb:sv()};
-  if (c[0].n===4) return {rank:7,name:"Poker de "+c[0].v,tb:[c[0].v,c[1].v]};
-  if (c[0].n===3&&c[1].n===2) return {rank:6,name:"Full",tb:[c[0].v,c[1].v]};
+  if (c[0].n===4) return {rank:7,name:"Poker de "+rn(c[0].v),tb:[c[0].v,c[1].v]};
+  if (c[0].n===3&&c[1].n===2) return {rank:6,name:"Full de "+rn(c[0].v)+" con "+rn(c[1].v),tb:[c[0].v,c[1].v]};
   if (flush) return {rank:5,name:"Color",tb:vals};
   if (straight) return {rank:4,name:"Escalera",tb:sv()};
-  if (c[0].n===3) return {rank:3,name:"Trio",tb:[c[0].v,...c.slice(1).map(x=>x.v)]};
-  if (c[0].n===2&&c[1].n===2) return {rank:2,name:"Doble pareja",tb:[c[0].v,c[1].v,c[2].v]};
-  if (c[0].n===2) return {rank:1,name:"Pareja de "+c[0].v,tb:[c[0].v,...c.slice(1).map(x=>x.v)]};
-  return {rank:0,name:"Carta alta",tb:vals};
+  if (c[0].n===3) return {rank:3,name:"Trío de "+rn(c[0].v),tb:[c[0].v,...c.slice(1).map(x=>x.v)]};
+  if (c[0].n===2&&c[1].n===2) return {rank:2,name:"Doble pareja "+rn(c[0].v)+"/"+rn(c[1].v),tb:[c[0].v,c[1].v,c[2].v]};
+  if (c[0].n===2) return {rank:1,name:"Pareja de "+rn(c[0].v),tb:[c[0].v,...c.slice(1).map(x=>x.v)]};
+  return {rank:0,name:"Carta alta "+rn(vals[0]),tb:vals};
 }
 
 function evalBest(cards) {
