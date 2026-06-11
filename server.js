@@ -630,6 +630,15 @@ wss.on("connection", ws => {
       return;
     }
 
+    // Audio WebRTC signaling — forward to target peer
+    if ((msg.type==="audio-offer"||msg.type==="audio-answer"||msg.type==="audio-ice") && currentRoom) {
+      const target = currentRoom.players[msg.to];
+      if (target && target.ws.readyState===1) {
+        target.ws.send(JSON.stringify({...msg, from: seatIndex}));
+      }
+      return;
+    }
+
     // Camera joined/left broadcast
     if (msg.type==="rtc-joined" && currentRoom) {
       const name = currentRoom.players[seatIndex] ? currentRoom.players[seatIndex].name : "?";
