@@ -1305,9 +1305,9 @@ function renderDesktop(s){
       cardsHtml='<div class="card back" style="width:28px;height:40px;border-radius:5px;"></div><div class="card back" style="width:28px;height:40px;border-radius:5px;"></div>';
     }
 
-    // Video tile
+    // Video tile — always create slot
     const vtile=document.getElementById("vtile-"+seatIdx);
-    const videoHtml=vtile?`<div class="dt-video" id="dt-vtile-${seatIdx}"></div>`:"";
+    const videoHtml=`<div class="dt-video" id="dt-vtile-${seatIdx}"></div>`;
 
     const seatEl=document.createElement("div");
     seatEl.className="dt-seat";
