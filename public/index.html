@@ -625,8 +625,10 @@ function selectDevice(mode){
   }
 }
 // Auto-detect on load
-if(window.innerWidth>=900) selectDevice("desktop");
-else selectDevice("mobile");
+window.addEventListener("DOMContentLoaded",()=>{
+  if(window.innerWidth>=900) selectDevice("desktop");
+  else selectDevice("mobile");
+});
 
 function joinGame(){
   // Resume AudioContext on user gesture (required by browsers)
