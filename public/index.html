@@ -1122,19 +1122,21 @@ async function joinRTC(){
 
 function addLocalVideo(){
   if(deviceMode==="desktop"){
-    // Desktop: only show in seat slot, not in floating bar
-    setTimeout(()=>{
+    // Desktop: insert video into seat slot — retry until slot exists
+    function tryInsertMyVideo(attempts){
       const slot=document.getElementById("dt-vtile-"+mySeat);
       if(slot&&!slot.querySelector("video")){
         const v=document.createElement("video");
         v.autoplay=true;v.playsInline=true;v.muted=true;
         v.style.cssText="width:100%;height:100%;object-fit:cover;";
         v.srcObject=localStream;
-        slot.innerHTML="";
-        slot.appendChild(v);
+        slot.innerHTML="";slot.appendChild(v);
         setTimeout(()=>v.play().catch(()=>{}),100);
+      } else if(!slot&&attempts>0){
+        setTimeout(()=>tryInsertMyVideo(attempts-1),300);
       }
-    },400);
+    }
+    tryInsertMyVideo(10);
     return;
   }
   // Mobile: show in floating video bar
@@ -1303,37 +1305,24 @@ function renderDesktop(s){
       </div>`;
     container.appendChild(seatEl);
 
-    // Move video img into dt-video slot
-    if(vtile){
-      setTimeout(()=>{
+    // Sync remote video frames to desktop seat slot
+    if(vtile&&!isMe){
+      if(!window._dtVideoUpdaters) window._dtVideoUpdaters={};
+      clearInterval(window._dtVideoUpdaters[seatIdx]);
+      window._dtVideoUpdaters[seatIdx]=setInterval(()=>{
         const slot=document.getElementById("dt-vtile-"+seatIdx);
-        if(slot){
-          const img=document.getElementById("vimg-"+seatIdx);
-          if(img){
-            // Clone with current src
-            const imgClone=document.createElement("img");
-            imgClone.style.cssText="width:100%;height:100%;object-fit:cover;";
-            imgClone.id="dt-vimg-"+seatIdx;
-            slot.appendChild(imgClone);
-            // Keep updating dt-vimg from the source vimg
-            if(!window._dtVideoUpdaters) window._dtVideoUpdaters={};
-            clearInterval(window._dtVideoUpdaters[seatIdx]);
-            window._dtVideoUpdaters[seatIdx]=setInterval(()=>{
-              const src=document.getElementById("vimg-"+seatIdx);
-              const dst=document.getElementById("dt-vimg-"+seatIdx);
-              if(src&&dst&&src.src) dst.src=src.src;
-            },250);
-          } else if(isMe&&localStream){
-            // My own video
-            const vid=document.createElement("video");
-            vid.autoplay=true;vid.playsInline=true;vid.muted=true;
-            vid.style.cssText="width:100%;height:100%;object-fit:cover;";
-            vid.srcObject=localStream;
-            slot.appendChild(vid);
-            setTimeout(()=>vid.play().catch(()=>{}),100);
+        const src=document.getElementById("vimg-"+seatIdx);
+        if(slot&&src&&src.src&&src.src.startsWith("data:")){
+          let dst=document.getElementById("dt-vimg-"+seatIdx);
+          if(!dst){
+            dst=document.createElement("img");
+            dst.style.cssText="width:100%;height:100%;object-fit:cover;";
+            dst.id="dt-vimg-"+seatIdx;
+            slot.innerHTML="";slot.appendChild(dst);
           }
+          dst.src=src.src;
         }
-      },300);
+      },250);
     }
   });
 
