@@ -629,6 +629,8 @@ if(window.innerWidth>=900) selectDevice("desktop");
 else selectDevice("mobile");
 
 function joinGame(){
+  // Resume AudioContext on user gesture (required by browsers)
+  if(audioCtx&&audioCtx.state==="suspended") audioCtx.resume();
   const name=(document.getElementById("inp-name").value.trim()||"Jugador");
   const room=(document.getElementById("inp-room").value.trim()||"sala1");
   myName=name;
@@ -685,7 +687,7 @@ function handleMsg(msg){
   if(msg.type==="rtc-peer-left"){
     removeVideoTile(msg.from);
   }
-  if(msg.type==="audio-chunk"){playAudioChunk(msg.from,msg.chunk);}
+  if(msg.type==="audio-chunk"){playAudioChunk(msg.from,msg.chunk,msg.sr);}
   if(msg.type==="video-frame"){
     const name=lastState&&lastState.names?lastState.names[msg.from]:"?";
     updateRemoteFrame(msg.from, name, msg.frame);
@@ -1041,23 +1043,28 @@ function startAudioCapture(){
   if(!localStream)return;
   try{
     const ctx=getAudioCtx();
+    if(ctx.state==="suspended") ctx.resume();
     const src=ctx.createMediaStreamSource(localStream);
-    audioProcessor=ctx.createScriptProcessor(2048,1,1);
+    // Use ScriptProcessor (widely supported) with smaller buffer
+    audioProcessor=ctx.createScriptProcessor(1024,1,1);
     src.connect(audioProcessor);
     audioProcessor.connect(ctx.destination);
+    let sendCount=0;
     audioProcessor.onaudioprocess=e=>{
       if(!rtcActive||muted)return;
+      sendCount++;
+      // Send every 4 chunks (~every 93ms at 44100Hz)
+      if(sendCount%4!==0)return;
       const pcm=e.inputBuffer.getChannelData(0);
-      // Convert float32 to int16
       const buf=new Int16Array(pcm.length);
       for(let i=0;i<pcm.length;i++) buf[i]=Math.max(-32768,Math.min(32767,pcm[i]*32768));
-      // Encode as base64
       const bytes=new Uint8Array(buf.buffer);
       let bin="";
       for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
       const b64=btoa(bin);
-      if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"audio-chunk",chunk:b64}));
+      if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"audio-chunk",chunk:b64,sr:ctx.sampleRate}));
     };
+    console.log("Audio capture started, sampleRate:",ctx.sampleRate);
   }catch(e){console.log("Audio capture error:",e);}
 }
 
@@ -1065,7 +1072,7 @@ function stopAudioCapture(){
   if(audioProcessor){audioProcessor.disconnect();audioProcessor=null;}
 }
 
-function playAudioChunk(seatIdx, b64){
+function playAudioChunk(seatIdx, b64, sampleRate){
   try{
     const ctx=getAudioCtx();
     if(ctx.state==="suspended") ctx.resume();
@@ -1075,13 +1082,14 @@ function playAudioChunk(seatIdx, b64){
     const int16=new Int16Array(bytes.buffer);
     const float32=new Float32Array(int16.length);
     for(let i=0;i<int16.length;i++) float32[i]=int16[i]/32768;
-    const buf=ctx.createBuffer(1,float32.length,16000);
+    const sr=sampleRate||44100;
+    const buf=ctx.createBuffer(1,float32.length,sr);
     buf.copyToChannel(float32,0);
     const src=ctx.createBufferSource();
     src.buffer=buf;
     src.connect(ctx.destination);
     src.start();
-  }catch(e){}
+  }catch(e){console.log("Audio play error:",e);}
 }
 
 async function joinRTC(){
