@@ -630,12 +630,12 @@ wss.on("connection", ws => {
       return;
     }
 
-    // Audio chunk relay — broadcast to all other players
-    if (msg.type==="audio-chunk" && currentRoom) {
-      const out = JSON.stringify({type:"audio-chunk", from: seatIndex, chunk: msg.chunk, sr: msg.sr});
-      currentRoom.players.forEach((p, i) => {
-        if (i !== seatIndex && p && p.ws.readyState===1) p.ws.send(out);
-      });
+    // Audio WebRTC signaling relay
+    if ((msg.type==="audio-offer"||msg.type==="audio-answer"||msg.type==="audio-ice") && currentRoom) {
+      const target = currentRoom.players[msg.to];
+      if (target && target.ws.readyState===1) {
+        target.ws.send(JSON.stringify({...msg, from: seatIndex}));
+      }
       return;
     }
 
