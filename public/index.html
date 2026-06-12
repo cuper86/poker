@@ -505,6 +505,7 @@ body.desktop .rtc-bar{margin-bottom:8px;}
 <!-- GAME SCREEN -->
 <div id="screen-game">
   <div class="lobby-info-bar" id="lobby-info"></div>
+  <div id="video-debug" style="font-size:10px;color:yellow;text-align:center;min-height:12px;"></div>
 
   <!-- DESKTOP TABLE -->
   <div class="desktop-table-container" id="desktop-table">
@@ -1351,13 +1352,21 @@ function renderDesktop(s){
   if(rtcActive&&localStream){
     setTimeout(()=>{
       const slot=document.getElementById("dt-vtile-"+mySeat);
-      if(slot&&!slot.querySelector("video")){
-        const v=document.createElement("video");
-        v.autoplay=true;v.playsInline=true;v.muted=true;
-        v.style.cssText="width:100%;height:100%;object-fit:cover;";
-        v.srcObject=localStream;
-        slot.appendChild(v);
-        v.play().catch(()=>{});
+      const dbg=document.getElementById("video-debug");
+      if(slot){
+        if(!slot.querySelector("video")){
+          const v=document.createElement("video");
+          v.autoplay=true;v.playsInline=true;v.muted=true;
+          v.style.cssText="width:100%;height:100%;object-fit:cover;";
+          v.srcObject=localStream;
+          slot.appendChild(v);
+          v.play().catch(e=>{if(dbg)dbg.textContent="play err:"+e.message;});
+          if(dbg)dbg.textContent="video inserted slot:"+slot.offsetWidth+"x"+slot.offsetHeight;
+        } else {
+          if(dbg)dbg.textContent="video ya existe "+slot.offsetWidth+"x"+slot.offsetHeight;
+        }
+      } else {
+        if(dbg)dbg.textContent="slot dt-vtile-"+mySeat+" NO EXISTE";
       }
     },100);
   }
