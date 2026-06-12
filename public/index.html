@@ -349,7 +349,7 @@ body.desktop .desktop-table-container{display:block;}
 body.desktop .table-wrap{display:none;}
 body.desktop .players-grid{display:none;}
 body.desktop .my-section{display:none;}
-body.desktop .video-bar{display:none!important;}
+body.desktop .video-bar{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:4px 0;}
 body.desktop .rtc-bar{margin-bottom:8px;}
 
 .dt-felt{
@@ -1127,15 +1127,35 @@ function addLocalVideo(){
     tile=document.createElement("div");
     tile.className="video-tile me-tile";
     tile.id="vtile-"+mySeat;
-    const vid=document.createElement("video");
-    vid.autoplay=true;vid.playsInline=true;vid.muted=true;
-    vid.srcObject=localStream;
-    setTimeout(()=>vid.play().catch(()=>{}),100);
-    tile.appendChild(vid);
     const nameEl=document.createElement("div");
     nameEl.className="vt-name";nameEl.textContent="Tú";
     tile.appendChild(nameEl);
     bar.appendChild(tile);
+  }
+  // Always set up video element
+  let vid=tile.querySelector("video");
+  if(!vid){
+    vid=document.createElement("video");
+    vid.autoplay=true;vid.playsInline=true;vid.muted=true;
+    vid.style.cssText="width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;";
+    tile.insertBefore(vid,tile.firstChild);
+  }
+  vid.srcObject=localStream;
+  setTimeout(()=>vid.play().catch(()=>{}),100);
+
+  // If desktop mode, also show in dt seat slot
+  if(deviceMode==="desktop"){
+    setTimeout(()=>{
+      const slot=document.getElementById("dt-vtile-"+mySeat);
+      if(slot&&slot.children.length===0){
+        const v2=document.createElement("video");
+        v2.autoplay=true;v2.playsInline=true;v2.muted=true;
+        v2.style.cssText="width:100%;height:100%;object-fit:cover;";
+        v2.srcObject=localStream;
+        slot.appendChild(v2);
+        setTimeout(()=>v2.play().catch(()=>{}),100);
+      }
+    },400);
   }
 }
 
