@@ -683,11 +683,17 @@ function handleMsg(msg){
   if(msg.type==="rtc-peer-joined"){
     const name=lastState&&lastState.names?lastState.names[msg.from]:msg.name||"?";
     addVideoTile(msg.from, name);
+    if(rtcActive) createAudioPeer(msg.from, true);
   }
   if(msg.type==="rtc-peer-left"){
     removeVideoTile(msg.from);
+    if(audioPeers[msg.from]){audioPeers[msg.from].close();delete audioPeers[msg.from];}
+    const a=document.getElementById("rtc-audio-"+msg.from);
+    if(a)a.remove();
   }
-  if(msg.type==="audio-chunk"){playAudioChunk(msg.from,msg.chunk,msg.sr);}
+  if(msg.type==="audio-offer"&&rtcActive){handleAudioOffer(msg.from,msg.sdp);}
+  if(msg.type==="audio-answer"&&rtcActive){handleAudioAnswer(msg.from,msg.sdp);}
+  if(msg.type==="audio-ice"&&rtcActive){handleAudioIce(msg.from,msg.candidate);}
   if(msg.type==="video-frame"){
     const name=lastState&&lastState.names?lastState.names[msg.from]:"?";
     updateRemoteFrame(msg.from, name, msg.frame);
@@ -1028,68 +1034,121 @@ let captureCanvas=document.createElement("canvas");
 captureCanvas.width=160;captureCanvas.height=120;
 let captureCtx=captureCanvas.getContext("2d");
 
-// Audio via WebSocket (PCM chunks)
-let audioCtx=null;
-let audioProcessor=null;
-let audioInterval=null;
-let remoteAudioBuffers={};
-
-function getAudioCtx(){
-  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});
-  return audioCtx;
-}
+// Audio via WebRTC (Opus codec, low latency)
+let audioPeers={};
+const AUDIO_CONFIG={
+  iceServers:[
+    {urls:"stun:stun.l.google.com:19302"},
+    {urls:"stun:stun1.l.google.com:19302"},
+    {urls:"turn:openrelay.metered.ca:80",username:"openrelayproject",credential:"openrelayproject"},
+    {urls:"turn:openrelay.metered.ca:443",username:"openrelayproject",credential:"openrelayproject"},
+    {urls:"turn:openrelay.metered.ca:443?transport=tcp",username:"openrelayproject",credential:"openrelayproject"}
+  ],
+  iceCandidatePoolSize:10
+};
 
 function startAudioCapture(){
+  // WebRTC handles audio — connect to all active peers
   if(!localStream)return;
-  try{
-    const ctx=getAudioCtx();
-    if(ctx.state==="suspended") ctx.resume();
-    const src=ctx.createMediaStreamSource(localStream);
-    // Use ScriptProcessor (widely supported) with smaller buffer
-    audioProcessor=ctx.createScriptProcessor(1024,1,1);
-    src.connect(audioProcessor);
-    audioProcessor.connect(ctx.destination);
-    let sendCount=0;
-    audioProcessor.onaudioprocess=e=>{
-      if(!rtcActive||muted)return;
-      sendCount++;
-      // Send every 4 chunks (~every 93ms at 44100Hz)
-      if(sendCount%4!==0)return;
-      const pcm=e.inputBuffer.getChannelData(0);
-      const buf=new Int16Array(pcm.length);
-      for(let i=0;i<pcm.length;i++) buf[i]=Math.max(-32768,Math.min(32767,pcm[i]*32768));
-      const bytes=new Uint8Array(buf.buffer);
-      let bin="";
-      for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
-      const b64=btoa(bin);
-      if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"audio-chunk",chunk:b64,sr:ctx.sampleRate}));
-    };
-    console.log("Audio capture started, sampleRate:",ctx.sampleRate);
-  }catch(e){console.log("Audio capture error:",e);}
+  if(lastState&&lastState.names){
+    lastState.names.forEach((name,i)=>{
+      if(name&&i!==mySeat) createAudioPeer(i,true);
+    });
+  }
 }
 
 function stopAudioCapture(){
-  if(audioProcessor){audioProcessor.disconnect();audioProcessor=null;}
+  Object.values(audioPeers).forEach(pc=>pc.close());
+  audioPeers={};
+  document.querySelectorAll("audio[id^='rtc-audio-']").forEach(el=>el.remove());
 }
 
-function playAudioChunk(seatIdx, b64, sampleRate){
-  try{
-    const ctx=getAudioCtx();
-    if(ctx.state==="suspended") ctx.resume();
-    const bin=atob(b64);
-    const bytes=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
-    const int16=new Int16Array(bytes.buffer);
-    const float32=new Float32Array(int16.length);
-    for(let i=0;i<int16.length;i++) float32[i]=int16[i]/32768;
-    const sr=sampleRate||44100;
-    const buf=ctx.createBuffer(1,float32.length,sr);
-    buf.copyToChannel(float32,0);
-    const src=ctx.createBufferSource();
-    src.buffer=buf;
-    src.connect(ctx.destination);
-    src.start();
-  }catch(e){console.log("Audio play error:",e);}
+async function createAudioPeer(targetSeat, isOfferer){
+  if(audioPeers[targetSeat]) audioPeers[targetSeat].close();
+  const pc=new RTCPeerConnection(AUDIO_CONFIG);
+  audioPeers[targetSeat]=pc;
+
+  // Add audio track
+  if(localStream){
+    localStream.getAudioTracks().forEach(t=>{
+      const sender=pc.addTrack(t,localStream);
+      // Set encoding params for low latency
+      const params=sender.getParameters();
+      if(params.encodings&&params.encodings[0]){
+        params.encodings[0].maxBitrate=32000;
+        params.encodings[0].priority="high";
+        sender.setParameters(params).catch(()=>{});
+      }
+    });
+  }
+
+  pc.ontrack=e=>{
+    if(e.streams&&e.streams[0]){
+      let audio=document.getElementById("rtc-audio-"+targetSeat);
+      if(!audio){
+        audio=document.createElement("audio");
+        audio.id="rtc-audio-"+targetSeat;
+        audio.autoplay=true;
+        audio.style.display="none";
+        document.body.appendChild(audio);
+      }
+      audio.srcObject=e.streams[0];
+      audio.play().catch(()=>{});
+    }
+  };
+
+  pc.onicecandidate=e=>{
+    if(e.candidate&&ws) ws.send(JSON.stringify({type:"audio-ice",to:targetSeat,candidate:e.candidate}));
+  };
+
+  pc.onconnectionstatechange=()=>{
+    console.log("Audio peer",targetSeat,"state:",pc.connectionState);
+  };
+
+  if(isOfferer){
+    const offer=await pc.createOffer({offerToReceiveAudio:true,offerToReceiveVideo:false});
+    // Force Opus codec and low latency
+    offer.sdp=preferOpus(offer.sdp);
+    await pc.setLocalDescription(offer);
+    if(ws) ws.send(JSON.stringify({type:"audio-offer",to:targetSeat,sdp:pc.localDescription}));
+  }
+  return pc;
+}
+
+function preferOpus(sdp){
+  // Move Opus to first position in audio codec list
+  return sdp.replace(/m=audio ([0-9]+) [A-Z/]+ ([0-9 ]+)/g,(match,port,codecs)=>{
+    const parts=codecs.trim().split(" ");
+    // Find Opus payload type
+    const opusMatch=sdp.match(/a=rtpmap:(\d+) opus/);
+    if(opusMatch){
+      const opusPt=opusMatch[1];
+      const reordered=[opusPt,...parts.filter(p=>p!==opusPt)];
+      return `m=audio ${port} RTP/SAVPF ${reordered.join(" ")}`;
+    }
+    return match;
+  });
+}
+
+async function handleAudioOffer(fromSeat, sdp){
+  const pc=await createAudioPeer(fromSeat, false);
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  const answer=await pc.createAnswer();
+  answer.sdp=preferOpus(answer.sdp);
+  await pc.setLocalDescription(answer);
+  if(ws) ws.send(JSON.stringify({type:"audio-answer",to:fromSeat,sdp:pc.localDescription}));
+}
+
+async function handleAudioAnswer(fromSeat, sdp){
+  const pc=audioPeers[fromSeat];
+  if(pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+}
+
+async function handleAudioIce(fromSeat, candidate){
+  const pc=audioPeers[fromSeat];
+  if(pc&&candidate){
+    try{ await pc.addIceCandidate(new RTCIceCandidate(candidate)); }catch(e){}
+  }
 }
 
 async function joinRTC(){
@@ -1188,6 +1247,8 @@ function leaveRTC(){
   if(frameInterval)clearInterval(frameInterval);frameInterval=null;
   if(localStream)localStream.getTracks().forEach(t=>t.stop());
   stopAudioCapture();
+  Object.values(audioPeers||{}).forEach(pc=>pc.close());
+  audioPeers={};
   localStream=null;rtcActive=false;
   if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"rtc-left"}));
   document.getElementById("video-bar").innerHTML="";
