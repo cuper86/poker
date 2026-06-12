@@ -1122,21 +1122,34 @@ async function joinRTC(){
 
 function addLocalVideo(){
   if(deviceMode==="desktop"){
-    // Desktop: insert video into seat slot — retry until slot exists
+    // Desktop: create a persistent video element, insert into slot when available
+    let myVid=document.getElementById("my-desktop-video");
+    if(!myVid){
+      myVid=document.createElement("video");
+      myVid.id="my-desktop-video";
+      myVid.autoplay=true;myVid.playsInline=true;myVid.muted=true;
+      myVid.style.cssText="display:none;";
+      document.body.appendChild(myVid);
+    }
+    myVid.srcObject=localStream;
+    setTimeout(()=>myVid.play().catch(()=>{}),100);
+
+    // Try to insert into seat slot repeatedly
     function tryInsertMyVideo(attempts){
       const slot=document.getElementById("dt-vtile-"+mySeat);
-      if(slot&&!slot.querySelector("video")){
-        const v=document.createElement("video");
-        v.autoplay=true;v.playsInline=true;v.muted=true;
-        v.style.cssText="width:100%;height:100%;object-fit:cover;";
+      if(slot){
+        slot.innerHTML="";
+        const v=myVid.cloneNode(false);
+        v.id="dt-vtile-video-"+mySeat;
+        v.style.cssText="width:100%;height:100%;object-fit:cover;display:block;";
         v.srcObject=localStream;
-        slot.innerHTML="";slot.appendChild(v);
+        slot.appendChild(v);
         setTimeout(()=>v.play().catch(()=>{}),100);
-      } else if(!slot&&attempts>0){
-        setTimeout(()=>tryInsertMyVideo(attempts-1),300);
+      } else if(attempts>0){
+        setTimeout(()=>tryInsertMyVideo(attempts-1),400);
       }
     }
-    tryInsertMyVideo(10);
+    tryInsertMyVideo(15);
     return;
   }
   // Mobile: show in floating video bar
@@ -1227,6 +1240,11 @@ function createOffer(targetSeat, targetName){
 // ── DESKTOP RENDER ──
 function renderDesktop(s){
   if(deviceMode!=="desktop")return;
+  // Clear dt video updater intervals before redrawing
+  if(window._dtVideoUpdaters){
+    Object.values(window._dtVideoUpdaters).forEach(iv=>clearInterval(iv));
+    window._dtVideoUpdaters={};
+  }
   const streets=["Pre-flop","Flop","Turn","River","Showdown"];
   document.getElementById("dt-street").textContent=streets[Math.min(s.street,4)];
   document.getElementById("dt-pot").innerHTML=chipStackSVG(s.pot,14)+"<span>Bote: "+s.pot+"</span>";
@@ -1328,6 +1346,21 @@ function renderDesktop(s){
 
   // Message
   dtSetMsg(s);
+
+  // Re-attach local video after seats are redrawn
+  if(rtcActive&&localStream){
+    setTimeout(()=>{
+      const slot=document.getElementById("dt-vtile-"+mySeat);
+      if(slot&&!slot.querySelector("video")){
+        const v=document.createElement("video");
+        v.autoplay=true;v.playsInline=true;v.muted=true;
+        v.style.cssText="width:100%;height:100%;object-fit:cover;";
+        v.srcObject=localStream;
+        slot.appendChild(v);
+        v.play().catch(()=>{});
+      }
+    },100);
+  }
 }
 
 function dtSetMsg(s){
