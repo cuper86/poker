@@ -1292,6 +1292,22 @@ function addVideoTile(seatIdx, name){
 }
 
 function updateRemoteFrame(seatIdx, name, frame){
+  // In desktop mode, only update the dt-vimg directly, skip floating bar
+  if(deviceMode==="desktop"){
+    let dst=document.getElementById("dt-vimg-"+seatIdx);
+    if(!dst){
+      const slot=document.getElementById("dt-vtile-"+seatIdx);
+      if(slot){
+        dst=document.createElement("img");
+        dst.style.cssText="width:100%;height:100%;object-fit:cover;";
+        dst.id="dt-vimg-"+seatIdx;
+        slot.innerHTML="";slot.appendChild(dst);
+      }
+    }
+    if(dst) dst.src=frame;
+    return;
+  }
+  // Mobile mode: update floating bar
   if(!document.getElementById("vtile-"+seatIdx)) addVideoTile(seatIdx, name);
   const img=document.getElementById("vimg-"+seatIdx);
   if(img) img.src=frame;
