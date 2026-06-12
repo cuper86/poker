@@ -631,8 +631,6 @@ window.addEventListener("DOMContentLoaded",()=>{
 });
 
 function joinGame(){
-  // Resume AudioContext on user gesture (required by browsers)
-  if(audioCtx&&audioCtx.state==="suspended") audioCtx.resume();
   const name=(document.getElementById("inp-name").value.trim()||"Jugador");
   const room=(document.getElementById("inp-room").value.trim()||"sala1");
   myName=name;
